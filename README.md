@@ -1,4 +1,4 @@
-# FileShare 0.2.0
+# FileShare 0.3.0
 
 Windows·macOS PC의 폴더 하나를 공유하고, 같은 Wi-Fi의 iPhone·Android 브라우저에서 파일을 주고받는 가벼운 파일 서버입니다.
 
@@ -6,17 +6,17 @@ Windows·macOS PC의 폴더 하나를 공유하고, 같은 Wi-Fi의 iPhone·Andr
 
 ## 실행
 
-1. [v0.2.0 다운로드](https://github.com/sjhdeux0114/fileShareServer/releases/tag/v0.2.0)에서 PC용 패키지를 받아 **전체 압축을 풉니다**.
+1. [v0.3.0 다운로드](https://github.com/sjhdeux0114/fileShareServer/releases/tag/v0.3.0)에서 PC용 패키지를 받아 **전체 압축을 풉니다**.
 
 | PC | 패키지 |
 |---|---|
-| Windows Intel/AMD | `FileShare-0.2.0-windows-x64.zip` |
-| Windows ARM | `FileShare-0.2.0-windows-arm64.zip` |
-| Mac Apple Silicon | `FileShare-0.2.0-macos-arm64.tar.gz` |
-| Mac Intel | `FileShare-0.2.0-macos-x64.tar.gz` |
+| Windows Intel/AMD | `FileShare-0.3.0-windows-x64.zip` |
+| Windows ARM | `FileShare-0.3.0-windows-arm64.zip` |
+| Mac Apple Silicon | `FileShare-0.3.0-macos-arm64.tar.gz` |
+| Mac Intel | `FileShare-0.3.0-macos-x64.tar.gz` |
 
 2. Windows: **`FileShare.exe`를 더블클릭**하세요. 릴리스의 단독 `.exe`도 바로 실행할 수 있습니다. 콘솔 창 없이 트레이에 표시됩니다. Mac은 `start-macos.command`를 실행하고 서버를 유지하세요.
-3. 첫 실행 시 PC 설정 화면이 자동으로 열립니다. **폴더 선택**으로 공유 폴더를 지정하고 접속 비밀번호(8자 이상)와 포트를 저장하세요.
+3. 첫 실행 시 PC 설정 화면이 자동으로 열립니다. **폴더 선택**으로 공유 폴더를 지정하고 접속 비밀번호(4자 이상)와 포트를 저장하세요.
 4. 설정 화면에 표시되는 휴대폰 접속 주소를 같은 Wi-Fi의 iPhone·Android 브라우저에 입력하세요.
 5. 다음 실행부터 저장된 INI 설정으로 서버가 바로 시작됩니다. Windows 트레이 아이콘 우클릭 → **설정**에서 변경하고 **종료**로 서버를 끕니다. 아이콘 더블클릭도 설정을 엽니다. 트레이가 숨겨져 있으면 작업 표시줄의 숨겨진 아이콘을 확인하세요.
 
@@ -49,7 +49,8 @@ Mac 실행 권한 오류는 해당 폴더의 터미널에서 `chmod +x FileShare
 
 ## 20GB 이상 대용량
 
-- 파일당 최대 **1TiB**, **16MiB 분할 업로드**. 전체 파일을 메모리에 올리지 않고 디스크에 씁니다. 다운로드는 HTTP Range를 지원합니다.
+- 파일당 최대 **1TiB**, **2MiB 분할 업로드**. 전체 파일을 메모리에 올리지 않고 디스크에 씁니다. 다운로드는 HTTP Range를 지원합니다.
+- 연결 오류 시 서버의 저장 위치를 확인하고 자동으로 이어 올립니다. 최대 12회 연속 복구 실패 시 수동 재개를 제공합니다. 사용자 일시정지는 자동 재개하지 않습니다.
 - **일시정지 → 이어 올리기** 지원. 브라우저나 서버가 종료되면 재접속 후 같은 원본을 **같은 대상 폴더에서 다시 선택**하세요. 이름·크기·수정 시각·앞/중간/뒤 샘플 지문이 같으면 이어 올립니다. 샘플 지문은 전체 파일 해시 검증을 대신하지 않습니다.
 - iOS 사진 선택기가 재변환하거나 수정 시각을 바꾸면 새 파일로 인식할 수 있습니다. 큰 원본은 파일 앱에서 선택하는 것이 안정적입니다.
 - 전송 중에는 휴대폰 화면과 브라우저를 전면에 유지하세요. iOS 잠금·백그라운드 작업은 중단될 수 있습니다. HTTP에서는 Wake Lock을 보장할 수 없습니다.
@@ -93,3 +94,10 @@ HTTP 통합 테스트에는 개발용 Node.js 22 이상을 사용합니다. `go 
 `npm run test:large`는 실제 **21GiB+123바이트 업로드 → 5GiB에서 서버 재시작·재개 → 전량 다운로드 → SHA-256 비교**를 수행합니다. 임시 디스크에 약 44GiB 여유가 필요합니다. 결과는 `release/large-file-test.json`, 상세 범위는 [검증 보고서](release/VALIDATION.md)에 기록합니다.
 
 기능 참고: [HFS](https://github.com/rejetto/hfs), [FileBrowser Quantum](https://github.com/gtsteffaniak/filebrowser), [Copyparty](https://github.com/9001/copyparty). 해당 프로그램들의 코드를 포함하거나 포크하지 않았습니다.
+
+## 0.3.0 변경
+
+- Windows 설정의 **Windows 로그인 시 자동 시작**을 켜고 저장하면 현재 사용자 Run 항목에 실행 파일을 등록합니다. 끄고 저장하면 해제합니다. 관리자 권한은 필요 없습니다. 재부팅 후 사용자 로그인 시 동작하며 Windows 시작 앱 설정에서 비활성화되면 실행되지 않습니다. EXE를 옮기거나 삭제하면 등록 경로도 다시 설정하세요. INI의 `AutoStart`에 선택이 저장됩니다.
+- 비밀번호는 4~128자입니다. 기존 비밀번호와 로그인은 그대로 유지됩니다.
+- 선택한 파일을 전송 완료까지 유지하고 최대 2MiB만 메모리에 읽어 전송합니다. 파일마다 목록·썸네일을 다시 불러오던 동작을 묶음 완료 후 한 번으로 줄였습니다.
+- 사진 선택 후 웹페이지에 파일이 전달되면 전송 목록으로 바로 이동합니다. **Safari가 선택창을 닫기 전 수행하는 사진/영상 변환·iCloud 원본 다운로드 시간은 웹페이지가 제어할 수 없습니다.** 선택기 옵션의 ‘현재’를 이용하거나 미리 내려받은 파일 앱 원본을 사용하세요. 관련 WebKit 보고: https://bugs.webkit.org/show_bug.cgi?id=325067

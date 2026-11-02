@@ -8,6 +8,42 @@ import vm from 'node:vm';
 import { createHash, randomBytes } from 'node:crypto';
 import { createApp } from './process-app.mjs';
 
+test('four-character password is accepted and three characters are rejected',async t=>{
+  const f=await fixture(t);
+  assert.equal((await f.req('/api/settings',{method:'POST',body:JSON.stringify({password:'123'})})).status,400);
+  const saved=await f.req('/api/settings',{method:'POST',body:JSON.stringify({password:'1234'})});
+  assert.equal(saved.status,200);
+  const login=await fetch(f.base+'/api/login',{method:'POST',headers:{'X-FileShare':'1'},body:JSON.stringify({password:'1234'})});
+  assert.equal(login.status,200);
+  assert.equal((await fs.readFile(path.join(f.dir,'settings.ini'),'utf8')).includes('Password = 1234'),false);
+});
+
+test('64 MiB real upload recovers lost responses and confirms final SHA256',async t=>{
+  const f=await fixture(t);
+  const context=vm.createContext({setTimeout});
+  vm.runInContext(await fs.readFile('public/transfer.js','utf8'),context);
+  const data=randomBytes(64*1024*1024), task={file:{size:data.length},offset:0};
+  let dropped=new Set(), completed=false, retries=0;
+  const read=async response=>{if(!response.ok)throw Object.assign(new Error(await response.text()),{status:response.status});return response.json();};
+  await context.FileShareTransfer.upload(task,{
+    chunkSize:2*1024*1024,sleep:async()=>{},message:()=>retries++,
+    init:()=>f.init('recovery.mov',data.length,'d'.repeat(64)),
+    status:async()=>read(await f.req(`/api/uploads/${task.id}`)),
+    send:async(start,end)=>{
+      const section=Math.floor(start/(10*1024*1024));
+      const fail=!dropped.has(section);dropped.add(section);
+      if(fail&&section%2===1)throw new Error('network failed before commit');
+      const result=await read(await f.req(`/api/uploads/${task.id}`,{method:'PATCH',headers:{'Upload-Offset':String(start)},body:data.subarray(start,end)}));
+      if(fail)throw new Error('response lost after commit');
+      return result;
+    },
+    complete:async()=>{await read(await f.req(`/api/uploads/${task.id}/complete`,{method:'POST'}));completed=true;throw new Error('completion response lost');}
+  });
+  assert.equal(completed,true);assert.ok(retries>=7);
+  const downloaded=Buffer.from(await (await f.req('/api/content?path=recovery.mov')).arrayBuffer());
+  assert.equal(createHash('sha256').update(downloaded).digest('hex'),createHash('sha256').update(data).digest('hex'));
+});
+
 async function fixture(t) {
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'fileshare-test-'));
   let app,base,cookie;

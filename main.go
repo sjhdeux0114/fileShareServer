@@ -52,6 +52,7 @@ func (e apiError) Error() string               { return e.message }
 func problem(status int, message string) error { return apiError{status, message} }
 
 type Config struct {
+	AutoStart    bool             `json:"autoStart"`
 	Port         int              `json:"port"`
 	NeedsSetup   bool             `json:"needsSetup"`
 	SharedRoot   string           `json:"sharedRoot"`
@@ -304,7 +305,7 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 			return problem(403, "요청 헤더가 필요합니다.")
 		}
 	}
-	if r.Method == "GET" && (route == "/" || route == "/style.css" || route == "/app.js") {
+	if r.Method == "GET" && (route == "/" || route == "/style.css" || route == "/app.js" || route == "/transfer.js") {
 		file := strings.TrimPrefix(route, "/")
 		if file == "" {
 			file = "index.html"
@@ -442,11 +443,13 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 	}
 	switch {
 	case route == "/api/info" && r.Method == "GET":
-		result := map[string]any{"version": "0.2.0", "chunkSize": chunkSize, "maxFileSize": maxSize, "freeBytes": diskFree(a.config.SharedRoot), "canConfigure": local(r), "folderName": filepath.Base(a.config.SharedRoot), "passwordConfigured": true}
+		result := map[string]any{"version": "0.3.0", "chunkSize": 2 << 20, "maxFileSize": maxSize, "freeBytes": diskFree(a.config.SharedRoot), "canConfigure": local(r), "folderName": filepath.Base(a.config.SharedRoot), "passwordConfigured": true}
 		if local(r) {
 			result["sharedRoot"] = a.config.SharedRoot
 			result["configuredPort"] = a.config.Port
 			result["configFile"] = a.configPath
+			result["autoStart"] = a.config.AutoStart
+			result["autoStartSupported"] = runtime.GOOS == "windows"
 			result["needsSetup"] = a.config.NeedsSetup
 			_, port, _ := net.SplitHostPort(r.Host)
 			addresses := []string{}
@@ -485,6 +488,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) error {
 		return problem(403, "설정은 서버 PC의 localhost 주소에서만 변경할 수 있습니다.")
 	}
 	var body struct {
+		AutoStart  *bool   `json:"autoStart"`
 		Port       *int    `json:"port"`
 		SharedRoot *string `json:"sharedRoot"`
 		Password   *string `json:"password"`
@@ -523,8 +527,8 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) error {
 		}()
 	}
 	if body.Password != nil {
-		if n := len([]rune(*body.Password)); n < 8 || n > 128 {
-			return problem(400, "비밀번호는 8~128자로 입력하세요.")
+		if n := len([]rune(*body.Password)); n < 4 || n > 128 {
+			return problem(400, "비밀번호는 4~128자로 입력하세요.")
 		}
 		next.Salt = randomHex(16)
 		next.PasswordHash = derive(*body.Password, next.Salt)
@@ -537,11 +541,20 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) error {
 		}
 		next.Port = *body.Port
 	}
+	if body.AutoStart != nil {
+		if err := setStartup(*body.AutoStart); err != nil {
+			return problem(500, "자동 시작 설정 실패: "+err.Error())
+		}
+		next.AutoStart = *body.AutoStart
+	}
 	old := a.config
 	next.NeedsSetup = false
 	a.config = next
 	if err := a.saveConfig(); err != nil {
 		a.config = old
+		if body.AutoStart != nil {
+			_ = setStartup(old.AutoStart)
+		}
 		return err
 	}
 	if a.root != newRoot {
@@ -1114,7 +1127,7 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) error {
 		return problem(409, "공유 폴더가 변경되었습니다. 원래 폴더에서 이어 올리세요.")
 	}
 	if u.Complete {
-		if complete && r.Method == "POST" {
+		if (complete && r.Method == "POST") || (!complete && r.Method == "GET") {
 			reply(w, 200, u)
 			return nil
 		}
@@ -1243,6 +1256,11 @@ func main() {
 		return
 	}
 	defer func() { a.root.Close() }()
+	if a.config.AutoStart && os.Getenv("FILESHARE_NO_TRAY") != "1" {
+		if err := setStartup(true); err != nil {
+			log.Printf("Auto-start registration: %v", err)
+		}
+	}
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = strconv.Itoa(a.config.Port)
@@ -1277,7 +1295,7 @@ func main() {
 	if err := os.WriteFile(filepath.Join(a.data, "desktop-url.txt"), []byte(desktopURL), 0600); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("\nFileShare v0.2.0 | Go native server\n\nPC: http://localhost:%s\n", port)
+	fmt.Printf("\nFileShare v0.3.0 | Go native server\n\nPC: http://localhost:%s\n", port)
 	interfaces, _ := net.InterfaceAddrs()
 	for _, addr := range interfaces {
 		ip, _, e := net.ParseCIDR(addr.String())

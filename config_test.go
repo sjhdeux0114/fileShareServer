@@ -9,7 +9,7 @@ import (
 
 func TestINIRoundtrip(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "FileShare.ini")
-	c := Config{SharedRoot: `C:\공유 폴더\a=b`, Port: 9123, Salt: randomHex(16), Key: randomHex(32), Revoked: map[string]int64{"old": 123}}
+	c := Config{SharedRoot: `C:\공유 폴더\a=b`, Port: 9123, AutoStart: true, Salt: randomHex(16), Key: randomHex(32), Revoked: map[string]int64{"old": 123}}
 	c.PasswordHash = derive("test-password", c.Salt)
 	if err := writeINI(file, c); err != nil {
 		t.Fatal(err)
@@ -18,7 +18,7 @@ func TestINIRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SharedRoot != c.SharedRoot || got.Port != c.Port || got.PasswordHash != c.PasswordHash || got.Revoked["old"] != 123 {
+	if got.SharedRoot != c.SharedRoot || got.Port != c.Port || got.AutoStart != c.AutoStart || got.PasswordHash != c.PasswordHash || got.Revoked["old"] != 123 {
 		t.Fatalf("bad roundtrip: %+v", got)
 	}
 	raw, _ := os.ReadFile(file)

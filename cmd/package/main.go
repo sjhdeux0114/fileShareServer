@@ -83,7 +83,7 @@ func main() {
 			files = append(files, entry{launcher, read(launcher), 0755})
 		}
 		if target.OS == "windows" {
-			must(os.WriteFile(filepath.Join("release", "FileShare-0.2.0-"+target.Label+".exe"), read(dest), 0755))
+			must(os.WriteFile(filepath.Join("release", "FileShare-0.3.0-"+target.Label+".exe"), read(dest), 0755))
 		}
 		for _, name := range []string{"VALIDATION.md", "large-file-test.json"} {
 			b, e := os.ReadFile(filepath.Join("release", name))
@@ -91,11 +91,11 @@ func main() {
 				files = append(files, entry{"release/" + name, b, 0644})
 			}
 		}
-		name := "FileShare-0.2.0-" + target.Label
+		name := "FileShare-0.3.0-" + target.Label
 		archive(filepath.Join("release", name+extension), name+"/", files)
 	}
 	var source []entry
-	for _, name := range []string{"main.go", "main_test.go", "config.go", "config_test.go", "file_busy_windows.go", "file_busy_other.go", "file_busy_windows_test.go", "tray_windows.go", "tray_other.go", "disk_windows.go", "disk_unix.go", "folder_windows.go", "folder_darwin.go", "folder_linux.go", "go.mod", "README.md", "package.json", "start-macos.command", "public", "test", "cmd", ".github", ".gitattributes", ".gitignore", "release/VALIDATION.md", "release/large-file-test.json"} {
+	for _, name := range []string{"main.go", "main_test.go", "config.go", "config_test.go", "file_busy_windows.go", "file_busy_other.go", "file_busy_windows_test.go", "startup_windows.go", "startup_other.go", "startup_windows_test.go", "tray_windows.go", "tray_other.go", "disk_windows.go", "disk_unix.go", "folder_windows.go", "folder_darwin.go", "folder_linux.go", "go.mod", "README.md", "package.json", "start-macos.command", "public", "test", "cmd", ".github", ".gitattributes", ".gitignore", "release/VALIDATION.md", "release/large-file-test.json"} {
 		must(filepath.WalkDir(name, func(p string, d os.DirEntry, e error) error {
 			if e != nil {
 				return e
@@ -111,12 +111,12 @@ func main() {
 			return nil
 		}))
 	}
-	archive("release/FileShare-0.2.0-source.zip", "FileShare-0.2.0/", source)
+	archive("release/FileShare-0.3.0-source.zip", "FileShare-0.3.0/", source)
 	entries, e := os.ReadDir("release")
 	must(e)
 	var sums []string
 	for _, item := range entries {
-		if !strings.HasPrefix(item.Name(), "FileShare-0.2.0-") {
+		if !strings.HasPrefix(item.Name(), "FileShare-0.3.0-") {
 			continue
 		}
 		if !strings.HasSuffix(item.Name(), ".zip") && !strings.HasSuffix(item.Name(), ".tar.gz") && !strings.HasSuffix(item.Name(), ".exe") {

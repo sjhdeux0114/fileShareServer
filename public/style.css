@@ -6,3 +6,5 @@
 dialog{border:1px solid var(--line);border-radius:18px;padding:28px;width:min(440px,90vw);color:var(--ink)}dialog::backdrop{background:#10201eb3}dialog input{width:100%}dialog label{font-size:12px;display:block;margin:16px 0 5px}.dialog-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}
 
 .desktop-mode .intro{display:none}.desktop-mode #workspace{padding-top:28px}.desktop-settings{border-top:4px solid #a6cb60}.desktop-settings h2{font-size:27px}.setup-status{background:#eff6e5;border-radius:10px;padding:12px 16px;margin:20px 0;font-size:13px;color:#47612b}.folder-input{display:flex;gap:10px}.folder-input input{flex:1;min-width:0}.folder-input button{white-space:nowrap}#phoneConnection{border-top:1px solid var(--line);margin-top:25px;padding-top:16px}#phoneConnection h3{font-size:15px}#phoneUrls{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}#phoneUrls code{padding:9px 12px;background:#eef3e8;border-radius:8px;font-size:13px}@media(max-width:640px){.folder-input{flex-direction:column}}
+
+#settings #autoStart{display:inline-block;width:auto;margin-right:8px}#autoStartLabel{cursor:pointer}

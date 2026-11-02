@@ -54,13 +54,14 @@ func readINI(name string) (Config, error) {
 			return c, fmt.Errorf("INI Port must be 1-65535")
 		}
 	}
+	c.AutoStart = values["server.autostart"] == "true"
 	c.NeedsSetup = values["server.needssetup"] == "true"
 	c.Salt = values["security.salt"]
 	c.PasswordHash = values["security.passwordhash"]
 	c.Key = values["security.sessionkey"]
 	if plaintext := values["security.password"]; plaintext != "" {
-		if len([]rune(plaintext)) < 8 {
-			return c, fmt.Errorf("INI Password must contain at least 8 characters")
+		if n := len([]rune(plaintext)); n < 4 || n > 128 {
+			return c, fmt.Errorf("INI Password must contain 4-128 characters")
 		}
 		c.Salt = randomHex(16)
 		c.PasswordHash = derive(plaintext, c.Salt)
@@ -87,7 +88,7 @@ func writeINI(name string, c Config) error {
 	if err != nil {
 		return err
 	}
-	text := fmt.Sprintf("; FileShare connection settings. Change via tray > Settings.\n; An optional Password field is hashed and removed on next start.\n[server]\nSharedFolder = %s\nPort = %d\nNeedsSetup = %t\n\n[security]\nPasswordHash = %s\nSalt = %s\nSessionKey = %s\nRevoked = %s\n", strconv.Quote(c.SharedRoot), c.Port, c.NeedsSetup, c.PasswordHash, c.Salt, c.Key, revoked)
+	text := fmt.Sprintf("; FileShare connection settings. Change via tray > Settings.\n; An optional Password field is hashed and removed on next start.\n[server]\nSharedFolder = %s\nPort = %d\nAutoStart = %t\nNeedsSetup = %t\n\n[security]\nPasswordHash = %s\nSalt = %s\nSessionKey = %s\nRevoked = %s\n", strconv.Quote(c.SharedRoot), c.Port, c.AutoStart, c.NeedsSetup, c.PasswordHash, c.Salt, c.Key, revoked)
 	if err = os.MkdirAll(filepath.Dir(name), 0700); err != nil {
 		return err
 	}
