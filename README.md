@@ -1,4 +1,4 @@
-# FileShare 0.1.0
+# FileShare 0.2.0
 
 Windows·macOS PC의 폴더 하나를 공유하고, 같은 Wi-Fi의 iPhone·Android 브라우저에서 파일을 주고받는 가벼운 파일 서버입니다.
 
@@ -6,14 +6,14 @@ Windows·macOS PC의 폴더 하나를 공유하고, 같은 Wi-Fi의 iPhone·Andr
 
 ## 실행
 
-1. [v0.1.0 다운로드](https://github.com/sjhdeux0114/fileShareServer/releases/tag/v0.1.0)에서 PC용 패키지를 받아 **전체 압축을 풉니다**.
+1. [v0.2.0 다운로드](https://github.com/sjhdeux0114/fileShareServer/releases/tag/v0.2.0)에서 PC용 패키지를 받아 **전체 압축을 풉니다**.
 
 | PC | 패키지 |
 |---|---|
-| Windows Intel/AMD | `FileShare-0.1.0-windows-x64.zip` |
-| Windows ARM | `FileShare-0.1.0-windows-arm64.zip` |
-| Mac Apple Silicon | `FileShare-0.1.0-macos-arm64.tar.gz` |
-| Mac Intel | `FileShare-0.1.0-macos-x64.tar.gz` |
+| Windows Intel/AMD | `FileShare-0.2.0-windows-x64.zip` |
+| Windows ARM | `FileShare-0.2.0-windows-arm64.zip` |
+| Mac Apple Silicon | `FileShare-0.2.0-macos-arm64.tar.gz` |
+| Mac Intel | `FileShare-0.2.0-macos-x64.tar.gz` |
 
 2. Windows: **`FileShare.exe`를 더블클릭**하세요. 릴리스의 단독 `.exe`도 바로 실행할 수 있습니다. 콘솔 창 없이 트레이에 표시됩니다. Mac은 `start-macos.command`를 실행하고 서버를 유지하세요.
 3. 첫 실행 시 PC 설정 화면이 자동으로 열립니다. **폴더 선택**으로 공유 폴더를 지정하고 접속 비밀번호(8자 이상)와 포트를 저장하세요.

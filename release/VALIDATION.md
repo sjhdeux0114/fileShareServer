@@ -1,4 +1,4 @@
-# FileShare 0.1.0 검증
+# FileShare 0.2.0 검증
 
 검증일: 2026-11-02 (Asia/Seoul). 최종 서버: Go 네이티브, Electron/Node 런타임 없음.
 
@@ -26,7 +26,7 @@
 
 - Windows x64에서 네이티브 실행·HTTP 통합·대용량 왕복 검증.
 - Windows ARM64, macOS ARM64/x64는 크로스 컴파일 패키지를 제공합니다.
-- GitHub Actions **Windows/macOS/Linux 모두 성공**: [실행 결과](https://github.com/sjhdeux0114/fileShareServer/actions/runs/41428914895). Go 단위 테스트·vet·네이티브 빌드·HTTP 통합 테스트 8개를 각 OS에서 통과했습니다.
+- GitHub Actions **Windows/macOS/Linux 모두 성공**: [실행 결과](https://github.com/sjhdeux0114/fileShareServer/actions/runs/41445811755). Go 단위 테스트·vet·네이티브 빌드·HTTP 통합 테스트 8개를 각 OS에서 통과했습니다.
 - Windows x64 ZIP을 실제로 풀어 포함된 배포용 실행 파일로 HTTP 통합 테스트 8개를 다시 통과했습니다. macOS tar.gz의 실행 파일·실행 스크립트 0755 권한도 확인했습니다.
 - 데스크톱 브라우저: 한글 파일과 33MiB 파일 다중 업로드, 사진 버튼으로 하위 폴더 업로드, 새 폴더 생성·탐색, 이름 변경, 폴더 간 복사, 한글 파일 다운로드 내용 일치, 80×80 썸네일 로드, 서버 재시작 후 자동 로그인 확인.
 - 390px 모바일 뷰포트에서 가로 넘침 없음 확인. 스크롤바를 제외한 실제 문서 폭 375px과 scrollWidth가 일치했습니다. 스크린샷은 `release/screenshots`에 보관합니다. 모바일 폭 검증은 실제 iOS Safari나 Android Chrome 검증을 대신하지 않습니다.
@@ -39,3 +39,5 @@
 - 대소문자 변경과 충돌 보호, 짧은 읽기 잠금 대기, 실제 Windows 삭제 공유 권한 없는 파일 핸들 해제 후 이름 변경 재시도 테스트 통과.
 - Windows GUI 서브시스템으로 빌드하여 콘솔 없이 실행. 네이티브 트레이 등록 성공 및 폴더 선택 대화상자 표시 확인. 네이티브 메뉴 클릭과 선택 완료는 자동 UI 환경 제약으로 직접 검증하지 못함.
 - 위 21GiB 측정은 트레이 추가 전 동일 전송 엔진의 결과이며 트레이 포함 메모리 측정값이 아님.
+
+0.2.0은 위 INI·트레이·이름 변경 수정본에 버전을 부여한 릴리스입니다. 21GiB 전송 기록은 0.1 개발 중 수행한 전송 엔진 검증입니다.

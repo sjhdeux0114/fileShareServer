@@ -1,4 +1,4 @@
-# FileShare v0.1.0
+# FileShare v0.2.0
 
 같은 Wi-Fi에서 Windows·Mac의 공유 폴더를 iPhone·Android 브라우저로 관리하는 Go 네이티브 파일 서버입니다. Electron·Node.js·Python 설치가 필요 없습니다.
 

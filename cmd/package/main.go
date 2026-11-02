@@ -83,7 +83,7 @@ func main() {
 			files = append(files, entry{launcher, read(launcher), 0755})
 		}
 		if target.OS == "windows" {
-			must(os.WriteFile(filepath.Join("release", "FileShare-0.1.0-"+target.Label+".exe"), read(dest), 0755))
+			must(os.WriteFile(filepath.Join("release", "FileShare-0.2.0-"+target.Label+".exe"), read(dest), 0755))
 		}
 		for _, name := range []string{"VALIDATION.md", "large-file-test.json"} {
 			b, e := os.ReadFile(filepath.Join("release", name))
@@ -91,7 +91,7 @@ func main() {
 				files = append(files, entry{"release/" + name, b, 0644})
 			}
 		}
-		name := "FileShare-0.1.0-" + target.Label
+		name := "FileShare-0.2.0-" + target.Label
 		archive(filepath.Join("release", name+extension), name+"/", files)
 	}
 	var source []entry
@@ -111,11 +111,14 @@ func main() {
 			return nil
 		}))
 	}
-	archive("release/FileShare-0.1.0-source.zip", "FileShare-0.1.0/", source)
+	archive("release/FileShare-0.2.0-source.zip", "FileShare-0.2.0/", source)
 	entries, e := os.ReadDir("release")
 	must(e)
 	var sums []string
 	for _, item := range entries {
+		if !strings.HasPrefix(item.Name(), "FileShare-0.2.0-") {
+			continue
+		}
 		if !strings.HasSuffix(item.Name(), ".zip") && !strings.HasSuffix(item.Name(), ".tar.gz") && !strings.HasSuffix(item.Name(), ".exe") {
 			continue
 		}

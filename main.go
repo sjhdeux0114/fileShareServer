@@ -442,7 +442,7 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 	}
 	switch {
 	case route == "/api/info" && r.Method == "GET":
-		result := map[string]any{"version": "0.1.0", "chunkSize": chunkSize, "maxFileSize": maxSize, "freeBytes": diskFree(a.config.SharedRoot), "canConfigure": local(r), "folderName": filepath.Base(a.config.SharedRoot), "passwordConfigured": true}
+		result := map[string]any{"version": "0.2.0", "chunkSize": chunkSize, "maxFileSize": maxSize, "freeBytes": diskFree(a.config.SharedRoot), "canConfigure": local(r), "folderName": filepath.Base(a.config.SharedRoot), "passwordConfigured": true}
 		if local(r) {
 			result["sharedRoot"] = a.config.SharedRoot
 			result["configuredPort"] = a.config.Port
@@ -1277,7 +1277,7 @@ func main() {
 	if err := os.WriteFile(filepath.Join(a.data, "desktop-url.txt"), []byte(desktopURL), 0600); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("\nFileShare v0.1.0 | Go native server\n\nPC: http://localhost:%s\n", port)
+	fmt.Printf("\nFileShare v0.2.0 | Go native server\n\nPC: http://localhost:%s\n", port)
 	interfaces, _ := net.InterfaceAddrs()
 	for _, addr := range interfaces {
 		ip, _, e := net.ParseCIDR(addr.String())
