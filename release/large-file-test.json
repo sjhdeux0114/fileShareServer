@@ -1,0 +1,14 @@
+{
+  "bytes": 22548578427,
+  "uploadGiB": 21,
+  "downloadBytes": 22548578427,
+  "sha256": "d8e93f2364176a5cc3a1c1b68a5d2ea191091ca0e9c2d5b94aac1f74d6cc7f6d",
+  "restartResumeAtGiB": 5,
+  "backend": "Go native",
+  "serverPeakWorkingSetMiB": 15,
+  "clientPeakRssMiB": 262,
+  "durationSeconds": 199,
+  "platform": "win32",
+  "node": "v24.19.0",
+  "passed": true
+}
