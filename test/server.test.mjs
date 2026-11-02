@@ -7,6 +7,7 @@ import http from 'node:http';
 import vm from 'node:vm';
 import { createHash, randomBytes } from 'node:crypto';
 import { createApp } from './process-app.mjs';
+import {loadEngine,taskFor} from './transfer-support.mjs';
 
 test('four-character password is accepted and three characters are rejected',async t=>{
   const f=await fixture(t);
@@ -20,24 +21,26 @@ test('four-character password is accepted and three characters are rejected',asy
 
 test('64 MiB real upload recovers lost responses and confirms final SHA256',async t=>{
   const f=await fixture(t);
-  const context=vm.createContext({setTimeout});
-  vm.runInContext(await fs.readFile('public/transfer.js','utf8'),context);
-  const data=randomBytes(64*1024*1024), task={file:{size:data.length},offset:0};
+  const {engine}=loadEngine();
+  const data=randomBytes(64*1024*1024), task=taskFor(data);
+  task.file=new File([data],'recovery.mov');
   let dropped=new Set(), completed=false, retries=0;
-  const read=async response=>{if(!response.ok)throw Object.assign(new Error(await response.text()),{status:response.status});return response.json();};
-  await context.FileShareTransfer.upload(task,{
-    chunkSize:2*1024*1024,sleep:async()=>{},message:()=>retries++,
-    init:()=>f.init('recovery.mov',data.length,'d'.repeat(64)),
-    status:async()=>read(await f.req(`/api/uploads/${task.id}`)),
-    send:async(start,end)=>{
-      const section=Math.floor(start/(10*1024*1024));
-      const fail=!dropped.has(section);dropped.add(section);
-      if(fail&&section%2===1)throw new Error('network failed before commit');
-      const result=await read(await f.req(`/api/uploads/${task.id}`,{method:'PATCH',headers:{'Upload-Offset':String(start)},body:data.subarray(start,end)}));
-      if(fail)throw new Error('response lost after commit');
-      return result;
-    },
-    complete:async()=>{await read(await f.req(`/api/uploads/${task.id}/complete`,{method:'POST'}));completed=true;throw new Error('completion response lost');}
+  await engine.upload(task,{
+    sleep:async()=>{},onState:phase=>{if(phase==='retrying')retries++;},
+    fetch:async(url,options)=>{
+      if(url.endsWith('/chunks')){
+        const start=Number(options.headers['Upload-Offset']);
+        const section=Math.floor(start/(10*1024*1024));
+        const fail=!dropped.has(section);dropped.add(section);
+        if(fail&&section%2===1)throw new Error('network failed before commit');
+        const response=await f.req(url,options);
+        if(fail){await response.arrayBuffer();throw new Error('response lost after commit');}
+        return response;
+      }
+      const response=await f.req(url,options);
+      if(url.endsWith('/complete')){await response.json();completed=true;throw new Error('completion response lost');}
+      return response;
+    }
   });
   assert.equal(completed,true);assert.ok(retries>=7);
   const downloaded=Buffer.from(await (await f.req('/api/content?path=recovery.mov')).arrayBuffer());
@@ -55,6 +58,33 @@ async function fixture(t) {
     async init(name,size, fingerprint='a'.repeat(64)){const r=await this.req('/api/uploads',{method:'POST',body:JSON.stringify({name,size,fingerprint})});assert.equal(r.status,201);return r.json();}
   };
 }
+
+test('4.6 MiB photo crosses chunk boundaries with receipt timings and identical content', async t=>{
+  const f=await fixture(t), data=randomBytes(Math.round(4.6*1024*1024));
+  const chunkSize=(await (await f.req('/api/info')).json()).chunkSize;
+  assert.equal(chunkSize,1024*1024);
+  const u=await f.init('photo-boundary.jpg',data.length);
+  const elapsed=[];
+  for(let offset=0;offset<data.length;){
+    const end=Math.min(offset+chunkSize,data.length), started=performance.now();
+    const response=await f.req(`/api/uploads/${u.id}/chunks`,{method:'POST',headers:{'Upload-Offset':String(offset)},body:data.subarray(offset,end),signal:AbortSignal.timeout(10000)});
+    assert.equal(response.status,200);
+    assert.notEqual(response.headers.get('connection'),'close');
+    assert.match(response.headers.get('server-timing'),/^receive;dur=[\d.]+, close;dur=[\d.]+$/);
+    assert.equal((await response.json()).offset,end);
+    assert.deepEqual(await (await f.req(`/api/uploads/${u.id}/progress`)).json(),{active:false,offset:end,complete:false});
+    elapsed.push(Math.round(performance.now()-started)); offset=end;
+  }
+  assert.equal((await f.req(`/api/uploads/${u.id}/complete`,{method:'POST'})).status,200);
+  assert.deepEqual(await (await f.req(`/api/uploads/${u.id}/progress`)).json(),{active:false,offset:data.length,complete:true});
+  assert.deepEqual(Buffer.from(await (await f.req('/api/content?path=photo-boundary.jpg')).arrayBuffer()),data);
+  const diagnostics=await (await f.req('/api/diagnostics/uploads')).json();
+  const ends=diagnostics.events.filter(e=>e.stage==='end'&&e.path.includes(u.id));
+  assert.ok(ends.some(e=>e.method==='POST'&&e.path.endsWith('/chunks')));
+  assert.ok(ends.some(e=>e.path.endsWith('/complete')));
+  assert.ok(ends.every(e=>Number.isInteger(e.durationMs||0)&&!e.errorStatus));
+  t.diagnostic(`Local chunk response times (ms): ${elapsed.join(', ')}`);
+});
 test('authentication, CSRF guard, login throttling and logout',async t=>{
   const f=await fixture(t);
   assert.equal((await fetch(f.base+'/')).status,200);
@@ -105,6 +135,51 @@ test('aborted chunk rolls back and can be resumed',async t=>{
   });
   let value;for(let i=0;i<40;i++){const r=await f.req(`/api/uploads/${u.id}`);if(r.status===200){value=await r.json();break;}await new Promise(r=>setTimeout(r,25));}assert.equal(value.offset,0);
   assert.equal((await f.req(`/api/uploads/${u.id}`,{method:'PATCH',headers:{'Upload-Offset':'0'},body:Buffer.alloc(1024*1024,42)})).status,200);
+});
+
+test('silent mobile connection times out, releases the upload and rolls back partial bytes', {timeout:30000}, async t=>{
+  const f=await fixture(t), data=randomBytes(1024*1024);
+  const u=await f.init('stalled-photo.jpg',data.length);
+  let request, initialResponse;
+  const response=new Promise((resolve,reject)=>{
+    request=http.request(f.base+`/api/uploads/${u.id}`,{method:'PATCH',headers:{Cookie:f.cookie,'X-FileShare':'1','Upload-Offset':'0','Content-Length':data.length}},res=>{
+      res.resume(); res.on('end',()=>{initialResponse=res.statusCode;resolve(res.statusCode);});
+    });
+    request.on('error',reject);
+    request.write(data.subarray(0,65536));
+  });
+  t.after(()=>request.destroy());
+  // Wait for actual bytes on disk; a status GET issued before PATCH acquires
+  // its lock can itself make PATCH return 409, invalidating this reproduction.
+  let busy=false;
+  for(let i=0;i<100;i++){
+    const stat=await fs.stat(path.join(f.dir,'uploads',u.id,'body'));
+    if(stat.size>0){busy=true;break;}
+    await new Promise(resolve=>setTimeout(resolve,20));
+  }
+  assert.equal(busy,true,`initial PATCH response: ${initialResponse}`);
+  assert.equal((await f.req(`/api/uploads/${u.id}`)).status,409);
+  const progress=await (await f.req(`/api/uploads/${u.id}/progress`)).json();
+  assert.equal(progress.active,true);
+  assert.equal(progress.received,65536);
+  assert.equal(progress.storing,false);
+  assert.equal(progress.offset,undefined);
+  const diagnostics=await (await f.req('/api/diagnostics/uploads')).json();
+  assert.ok(diagnostics.events.some(e=>e.method==='PATCH'&&e.path.endsWith(u.id)&&e.stage==='start'));
+  assert.equal(diagnostics.events.some(e=>e.method==='PATCH'&&e.path.endsWith(u.id)&&e.stage==='end'),false);
+  assert.equal((await fetch(f.base+`/api/uploads/${u.id}/progress`)).status,401);
+  const duplicate=await f.req('/api/uploads',{method:'POST',signal:AbortSignal.timeout(2000),body:JSON.stringify({name:u.name,size:u.size,fingerprint:u.fingerprint})});
+  assert.equal(duplicate.status,409);
+  // The duplicate request must not block unrelated uploads behind the global lock.
+  const other=await f.req('/api/uploads',{method:'POST',signal:AbortSignal.timeout(2000),body:JSON.stringify({name:'other.txt',size:0,fingerprint:'b'.repeat(64)})});
+  assert.equal(other.status,201);
+  assert.equal(await response,408);
+  assert.deepEqual(await (await f.req(`/api/uploads/${u.id}/progress`)).json(),{active:false,offset:0,complete:false});
+  assert.equal((await (await f.req(`/api/uploads/${u.id}`)).json()).offset,0);
+  assert.equal((await f.req(`/api/uploads/${u.id}`,{method:'PATCH',headers:{'Upload-Offset':'0'},body:data})).status,200);
+  assert.equal((await f.req(`/api/uploads/${u.id}/complete`,{method:'POST'})).status,200);
+  const downloaded=Buffer.from(await (await f.req('/api/content?path=stalled-photo.jpg')).arrayBuffer());
+  assert.deepEqual(downloaded,data);
 });
 test('client SHA256 works without WebCrypto on insecure LAN HTTP',async()=>{
   const source=await fs.readFile(new URL('../public/app.js',import.meta.url),'utf8');

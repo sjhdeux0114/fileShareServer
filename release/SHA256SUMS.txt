@@ -1,7 +1,7 @@
-53fed115d17d0facff0351c4f3de320dcf9ebfbb5fa3ba2269a138ae2d385d40  FileShare-0.3.0-windows-x64.zip
-5e8745cc9ff69865e85eb94a664a53387240ea0bdab7b783d44d701f91d4490c  FileShare-0.3.0-macos-arm64.tar.gz
-7ac1329bf5400577d707e5fc6737620f3cd234c0caf8d452021294c5dea2010e  FileShare-0.3.0-windows-arm64.zip
-9a6792350862065b483cadc804d377ede72ae2dc5e6aaeae44d8fdfebfe0eb1e  FileShare-0.3.0-macos-x64.tar.gz
-c59bab96312bd9932c713e1cf982d8f33e642c246c11fe09db78d5ac04ac0d50  FileShare-0.3.0-windows-x64.exe
-d9c48456b7ef9f88c739ce9ba85bc450940cb41bef342998cce310ff21b8df16  FileShare-0.3.0-windows-arm64.exe
-f1f0fd72037c30e6483a06e6d1e533a3b55461682148182cc1b6631e367c66bd  FileShare-0.3.0-source.zip
+0d104192ddbd1c7997a2b32ed8a2a267922b2500501b2c41590bf4e4029a2f79  FileShare-0.4.0-windows-x64.exe
+96fb19c8ba70f21037a281c3d83860beb7cef0a02283255db1754fa027ff8f1a  FileShare-0.4.0-windows-arm64.exe
+b01375d99bb0c2591f30251a0578f5becea3dabae5eb732344936cd015f9033a  FileShare-0.4.0-source.zip
+d6ff1588da0beb44041ff7e22e8cc113a7878a9dd33a9e302fd243ae486928cb  FileShare-0.4.0-windows-x64.zip
+e693244b4fd3b427a29ebbde11c48cba625ea6c9a0e204bb301255ee5cfc829a  FileShare-0.4.0-macos-x64.tar.gz
+f3b060935644b72e661da293043bda3b158342df2510f1abc86b545b975151b8  FileShare-0.4.0-macos-arm64.tar.gz
+f78dc47522821ea89672e99de8818752f0a511bfe3f673d42b5627262774edf8  FileShare-0.4.0-windows-arm64.zip

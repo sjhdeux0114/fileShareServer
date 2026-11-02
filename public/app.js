@@ -1,30 +1,39 @@
 const $ = selector => document.querySelector(selector);
-const state = { files: [], queue: [], running: false, chunk: 16 * 1024 * 1024, active: null, path: '', clipboard: null };
+const state = { files: [], queue: [], running: false, chunk: FileShareTransfer.chunkSize, active: null, path: '', clipboard: null };
 let noticeTimer;
 function notice(text) { $('#notice').textContent = text; $('#notice').hidden = false; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => $('#notice').hidden = true, 7000); }
 function size(n) { if (!n) return '0 B'; const i = Math.min(4, Math.floor(Math.log(n) / Math.log(1024))); return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${['B','KiB','MiB','GiB','TiB'][i]}`; }
 async function api(url, options = {}) {
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  options.signal?.addEventListener('abort', abort, {once:true});
+  if(options.signal?.aborted)controller.abort();
   const timer = setTimeout(()=>controller.abort(), url.endsWith('/complete') ? 30*60*1000 : url==='/api/pick-folder' ? 10*60*1000 : 30000);
   try {
     const res = await fetch(url, { ...options, signal:controller.signal, headers: { 'X-FileShare':'1', ...(options.body ? { 'Content-Type':'application/json' } : {}), ...options.headers } });
     const data = await res.json(); if (!res.ok) { if (res.status === 401) showLogin(); throw Object.assign(new Error(data.error || '요청에 실패했습니다.'), {status:res.status}); } return data;
-  } finally {clearTimeout(timer);}
+  } finally {clearTimeout(timer);options.signal?.removeEventListener('abort',abort);}
 
 }
 function showLogin() { $('#login').hidden = false; $('#workspace').hidden = true; }
 async function connected() { const info = await api('/api/info'); state.chunk = info.chunkSize; $('#storage').textContent = `남은 공간 ${size(info.freeBytes)}`; $('#login').hidden = true; $('#workspace').hidden = false; $('#settings').hidden = !info.canConfigure; if(info.canConfigure) { document.body.classList.add('desktop-mode'); $('#sharedRoot').value=info.sharedRoot; $('#serverPort').value=info.configuredPort; $('#autoStartLabel').hidden=!info.autoStartSupported; $('#autoStart').checked=info.autoStart; state.autoStartSupported=info.autoStartSupported; $('#dropzone').hidden=info.needsSetup; $('.library').hidden=info.needsSetup; $('#newPassword').required=info.needsSetup; $('#confirmPassword').required=info.needsSetup; $('#setupStatus').textContent=info.needsSetup?'아래 설정을 저장하면 휴대폰에서 접속할 수 있습니다.':'공유 중 · 폴더와 비밀번호를 언제든 변경할 수 있습니다.'; $('#phoneConnection').hidden=info.needsSetup; $('#phoneUrls').replaceChildren(); for(const url of info.phoneUrls||[]){const address=document.createElement('code');address.textContent=url;$('#phoneUrls').append(address);} } state.folderName=info.folderName; await refresh(); }
 $('#loginForm').addEventListener('submit', async e => { e.preventDefault(); const button = e.submitter; button.disabled = true; try { await api('/api/login', { method:'POST', body: JSON.stringify({ password:$('#pin').value }) }); $('#pin').value = ''; await connected(); } catch (e) { notice(e.message); } finally { button.disabled = false; } });
 $('#logout').onclick = async () => { if (state.running) { notice('진행 중인 전송을 먼저 일시정지하세요.'); return; } try { await api('/api/logout', { method:'POST' }); showLogin(); } catch (e) { notice(e.message); } };
-$('#pickFiles').onclick = () => $('#files').click(); $('#pickPhotos').onclick = () => $('#photos').click();
+const selectionStatus=document.createElement('p');selectionStatus.className='hint';selectionStatus.id='selectionStatus';selectionStatus.setAttribute('aria-live','polite');$('#photos').after(selectionStatus);
+let pickerOpenedAt=0;
+function openPicker(selector){pickerOpenedAt=performance.now();selectionStatus.textContent='선택창에서 파일을 고르면 준비 상태가 표시됩니다.';$(selector).click();}
+$('#pickFiles').onclick = () => openPicker('#files'); $('#pickPhotos').onclick = () => openPicker('#photos');
 // Retain each native input until its batch finishes; clearing it immediately can
 // invalidate iOS temporary media references. Fresh inputs allow selecting the same file again.
 function bindPicker(input) {
+  input.oncancel=()=>{selectionStatus.textContent='파일 선택을 취소했습니다.';};
   input.onchange = () => {
+    const receivedAt=performance.now();
     const files = Array.from(input.files);
     if (!files.length) return;
+    selectionStatus.textContent=`${files.length}개 파일을 받았습니다. 앱에서 파일 준비를 시작합니다.`;
     const fresh = input.cloneNode(); fresh.value=''; input.removeAttribute('id'); input.after(fresh); bindPicker(fresh);
-    enqueue(files, input);
+    enqueue(files, input, {receivedAt,pickerElapsedMs:pickerOpenedAt?receivedAt-pickerOpenedAt:0});
   };
 }
 for (const selector of ['#files','#photos']) bindPicker($(selector));
@@ -33,8 +42,8 @@ $('#dropzone').ondragleave = () => $('#dropzone').classList.remove('dragging');
 $('#dropzone').ondrop = e => { e.preventDefault(); $('#dropzone').classList.remove('dragging'); enqueue([...e.dataTransfer.files]); };
 $('#clearQueue').onclick = () => { state.queue = state.queue.filter(t => t.status !== 'done'); renderQueue(); };
 $('#refresh').onclick = () => refresh().catch(e => notice(e.message)); $('#search').oninput = renderFiles;
-function enqueue(files, input = null) {
-  const batch = {input, remaining:files.length};
+function enqueue(files, input = null, timing = {}) {
+  const batch = {input, remaining:files.length,...timing};
   for (const file of files) state.queue.push({ file, batch, target:state.path, status:'waiting', offset:0, text:'전송 대기', pause:false });
   renderQueue(); $('#queueSection').scrollIntoView({block:'start', behavior:'auto'});
   // Let the upload view paint before reading or hashing media.
@@ -47,7 +56,7 @@ function renderQueue() {
     const head = document.createElement('div'); head.className = 'transfer-head'; const name = document.createElement('strong'); name.textContent = t.file.name; head.append(name);
     const button = document.createElement('button'); button.className = 'text-button';
     button.textContent = t.status === 'done' ? '완료 ✓' : ['paused','error'].includes(t.status) ? '이어 올리기' : '일시정지'; button.disabled = t.status === 'done';
-    button.onclick = () => { if (['paused','error'].includes(t.status)) { t.pause = false; t.status = 'waiting'; t.text = '이어 올리기 대기'; run(); } else { t.pause = true; if (t.status === 'waiting') { t.status = 'paused'; t.text = '일시정지'; } if (state.active === t) t.xhr?.abort(); } renderQueue(); }; head.append(button);
+    button.onclick = () => { if (['paused','error'].includes(t.status)) { t.pause = false; t.status = 'waiting'; t.text = '이어 올리기 대기'; run(); } else { t.pause = true; if (t.status === 'waiting') { t.status = 'paused'; t.text = '일시정지'; } if (state.active === t) t.cancelTransfer?.(); } renderQueue(); }; head.append(button);
     const progress = document.createElement('progress'); progress.max = t.file.size || 1; progress.value = t.status === 'done' ? progress.max : t.offset;
     const info = document.createElement('div'); info.className = 'transfer-status'; info.textContent = `${t.text} · ${size(t.offset)} / ${size(t.file.size)}`;
     row.append(head, progress, info); $('#queue').append(row); t.progress = progress; t.info = info;
@@ -67,28 +76,13 @@ function sha256(bytes) {
   }
   return h.map(n=>(n>>>0).toString(16).padStart(8,'0')).join('');
 }
-async function fingerprint(file) {
+async function fingerprint(task, source) {
+  const file = task.file;
   const meta = new TextEncoder().encode(JSON.stringify([file.name,file.size,file.lastModified]));
   const starts = [0, Math.max(0,Math.floor(file.size/2)-32768), Math.max(0,file.size-65536)];
-  const parts = await Promise.all(starts.map(start => file.slice(start,start+65536).arrayBuffer()));
+  const parts = [];
+  for (const start of starts) parts.push(await source.sample(start, Math.min(file.size, start + 65536)));
   const bytes = new Uint8Array(meta.length+parts.reduce((sum,p)=>sum+p.byteLength,0)); bytes.set(meta); let at=meta.length; for(const p of parts){bytes.set(new Uint8Array(p),at);at+=p.byteLength;} return sha256(bytes);
-}
-async function chunk(t, start, end) {
-  const bytes = await t.file.slice(start,end).arrayBuffer();
-  if(t.pause) throw new Error('일시정지');
-  return new Promise((resolve,reject) => {
-    const xhr = new XMLHttpRequest(); t.xhr=xhr;
-    let watchdog;
-    const done = (error, data) => { clearTimeout(watchdog); t.xhr=null; error ? reject(error) : resolve(data); };
-    const arm = () => { clearTimeout(watchdog); watchdog=setTimeout(()=>{xhr.abort();}, 90000); };
-    xhr.open('PATCH', `/api/uploads/${t.id}`); xhr.setRequestHeader('X-FileShare','1'); xhr.setRequestHeader('Upload-Offset',String(start)); xhr.setRequestHeader('Content-Type','application/octet-stream'); xhr.timeout=30*60*1000;
-    xhr.upload.onprogress = e => { arm(); const transferred=start+e.loaded; t.progress.value=transferred; t.info.textContent=`${Math.min(100,transferred/t.file.size*100).toFixed(1)}% · ${size(transferred)} / ${size(t.file.size)}`; };
-    xhr.onload=()=>{ let data; try { data=JSON.parse(xhr.responseText); } catch { done(new Error('서버 응답을 확인할 수 없습니다.')); return; } if(xhr.status>=200&&xhr.status<300)done(null,data);else done(Object.assign(new Error(data.error||'전송 실패'),{status:xhr.status})); };
-    xhr.onerror=()=>done(new Error('네트워크 연결이 끊겼습니다.'));
-    xhr.ontimeout=()=>done(new Error('전송 응답 대기 시간이 초과되었습니다.'));
-    xhr.onabort=()=>done(new Error(t.pause?'일시정지':'전송 응답이 없어 다시 연결합니다.'));
-    arm(); xhr.send(bytes);
-  });
 }
 async function run() {
   if(state.running)return;state.running=true;
@@ -96,18 +90,19 @@ async function run() {
     for (const t of state.queue) {
       if(t.status!=='waiting')continue; state.active=t;t.status='uploading';t.text='파일 확인 중';renderQueue();
       try {
-        t.fingerprint ||= await fingerprint(t.file);
         const finished = await FileShareTransfer.upload(t, {
+          fingerprint:source=>fingerprint(t,source),
           chunkSize:state.chunk,
-          init:()=>api('/api/uploads',{method:'POST',body:JSON.stringify({name:t.file.name,size:t.file.size,fingerprint:t.fingerprint,target:t.target})}),
-          status:()=>api(`/api/uploads/${t.id}`),
-          send:(start,end)=>chunk(t,start,end),
-          complete:()=>api(`/api/uploads/${t.id}/complete`,{method:'POST'}),
-          message:text=>{t.text=text;t.info.textContent=text;}
+          onState:(phase,detail)=>{
+            const labels={preparing:'기기에서 파일 준비 중',starting:'전송 시작 중',checking:'저장 위치 확인 중',reading:'다음 데이터 준비 중',sending:'전송 중',finalizing:'PC에 최종 저장 중',done:'전송 완료'};
+            t.text=phase==='retrying'?`${detail.message} · 재시도 ${detail.attempt}/6`:labels[phase];
+            t.info.textContent=`${t.text} · ${size(t.offset)} / ${size(t.file.size)}`;
+          },
+          onProgress:offset=>{t.progress.value=offset;t.info.textContent=`${t.text} · ${size(offset)} / ${size(t.file.size)}`;}
         });
         if(!finished){t.status='paused';t.text='일시정지';}
-        else {t.status='done';t.text='전송 완료';t.file={name:t.file.name,size:t.file.size};if(t.batch&&--t.batch.remaining===0&&t.batch.input){t.batch.input.value='';t.batch.input.remove();t.batch.input=null;}}
-      }catch(e){t.status=t.pause?'paused':'error';t.text=e.message;}finally{t.xhr=null;renderQueue();}
+        else {t.status='done';t.text=`전송 완료 · 준비 ${(t.metrics.prepareMs/1000).toFixed(1)}초 · 전송 ${(t.metrics.uploadMs/1000).toFixed(1)}초`;t.file={name:t.file.name,size:t.file.size};if(t.batch&&--t.batch.remaining===0&&t.batch.input){t.batch.input.value='';t.batch.input.remove();t.batch.input=null;}}
+      }catch(e){t.status=t.pause?'paused':'error';t.text=e.message;if(e.status===401)showLogin();}finally{t.cancelTransfer=null;renderQueue();}
     }
     // Refresh once per batch, avoiding thumbnail requests competing with uploads.
     await refresh().catch(()=>{});

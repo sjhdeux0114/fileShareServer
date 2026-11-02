@@ -168,3 +168,37 @@ func TestTokenTamperAndExpiry(t *testing.T) {
 		t.Fatal("old token accepted after rotation")
 	}
 }
+
+func TestUploadDiagnosticsAreBoundedAndLocalOnly(t *testing.T) {
+	a, err := newApp(t.TempDir(), "", "test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.root.Close()
+	r := httptest.NewRequest("PATCH", "http://localhost/api/uploads/test", nil)
+	for i := 0; i < 300; i++ {
+		a.recordUpload(r, "end", time.Millisecond, 0)
+	}
+	for _, remote := range []string{"192.168.1.20:1234", "127.0.0.1:1234"} {
+		r := httptest.NewRequest("GET", "http://localhost/api/diagnostics/uploads", nil)
+		r.RemoteAddr = remote
+		r.AddCookie(&http.Cookie{Name: "session", Value: a.token()})
+		w := httptest.NewRecorder()
+		a.ServeHTTP(w, r)
+		if strings.HasPrefix(remote, "192.") {
+			if w.Code != 403 {
+				t.Fatalf("remote diagnostics status=%d", w.Code)
+			}
+			continue
+		}
+		var response struct {
+			Events []uploadRequestEvent `json:"events"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != 200 || len(response.Events) != 256 {
+			t.Fatalf("diagnostics: %d, %d entries", w.Code, len(response.Events))
+		}
+	}
+}

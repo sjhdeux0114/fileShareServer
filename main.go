@@ -78,19 +78,22 @@ type attempt struct {
 	until time.Time
 }
 type App struct {
-	configPath  string
-	desktopKey  string
-	picker      sync.Mutex
-	data        string
-	root        *os.Root
-	config      Config
-	auth        sync.Mutex
-	filesystem  sync.RWMutex
-	uploads     sync.Mutex
-	uploadLocks sync.Map
-	attempts    map[string]attempt
-	initial     string
-	thumbnails  chan struct{}
+	configPath     string
+	desktopKey     string
+	picker         sync.Mutex
+	data           string
+	root           *os.Root
+	config         Config
+	auth           sync.Mutex
+	filesystem     sync.RWMutex
+	uploads        sync.Mutex
+	uploadLocks    sync.Map
+	uploadProgress sync.Map
+	diagnosticsMu  sync.Mutex
+	diagnostics    []uploadRequestEvent
+	attempts       map[string]attempt
+	initial        string
+	thumbnails     chan struct{}
 }
 
 func randomHex(n int) string {
@@ -267,14 +270,40 @@ func reply(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
 }
+
+type uploadRequestEvent struct {
+	At         int64  `json:"at"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	Stage      string `json:"stage"`
+	DurationMS int64  `json:"durationMs,omitempty"`
+	Status     int    `json:"errorStatus,omitempty"`
+}
+
+func (a *App) recordUpload(r *http.Request, stage string, elapsed time.Duration, status int) {
+	a.diagnosticsMu.Lock()
+	defer a.diagnosticsMu.Unlock()
+	if len(a.diagnostics) >= 256 {
+		copy(a.diagnostics, a.diagnostics[1:])
+		a.diagnostics = a.diagnostics[:255]
+	}
+	a.diagnostics = append(a.diagnostics, uploadRequestEvent{time.Now().UnixMilli(), r.Method, r.URL.Path, stage, elapsed.Milliseconds(), status})
+}
+
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	status := 0
+	if (r.URL.Path == "/api/uploads" || strings.HasPrefix(r.URL.Path, "/api/uploads/")) && !strings.HasSuffix(r.URL.Path, "/progress") {
+		started := time.Now()
+		a.recordUpload(r, "start", 0, 0)
+		defer func() { a.recordUpload(r, "end", time.Since(started), status) }()
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 	if err := a.route(w, r); err != nil {
-		status := 500
+		status = 500
 		message := "서버 오류가 발생했습니다."
 		var e apiError
 		if errors.As(err, &e) {
@@ -391,6 +420,16 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 	if !valid {
 		return problem(401, "접속 비밀번호를 입력하세요.")
 	}
+	if route == "/api/diagnostics/uploads" && r.Method == "GET" {
+		if !local(r) {
+			return problem(403, "업로드 진단은 서버 PC에서만 가능합니다.")
+		}
+		a.diagnosticsMu.Lock()
+		events := append([]uploadRequestEvent{}, a.diagnostics...)
+		a.diagnosticsMu.Unlock()
+		reply(w, 200, map[string]any{"events": events})
+		return nil
+	}
 	if route == "/api/pick-folder" && r.Method == "POST" {
 		if !local(r) {
 			return problem(403, "폴더 선택은 서버 PC에서만 가능합니다.")
@@ -443,7 +482,7 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 	}
 	switch {
 	case route == "/api/info" && r.Method == "GET":
-		result := map[string]any{"version": "0.3.0", "chunkSize": 2 << 20, "maxFileSize": maxSize, "freeBytes": diskFree(a.config.SharedRoot), "canConfigure": local(r), "folderName": filepath.Base(a.config.SharedRoot), "passwordConfigured": true}
+		result := map[string]any{"version": "0.4.0", "uploadEngine": 2, "chunkSize": 1 << 20, "maxFileSize": maxSize, "freeBytes": diskFree(a.config.SharedRoot), "canConfigure": local(r), "folderName": filepath.Base(a.config.SharedRoot), "passwordConfigured": true}
 		if local(r) {
 			result["sharedRoot"] = a.config.SharedRoot
 			result["configuredPort"] = a.config.Port
@@ -1012,231 +1051,6 @@ func (a *App) thumbnail(w http.ResponseWriter, r *http.Request) error {
 	w.Header().Set("Cache-Control", "private, max-age=120")
 	return jpeg.Encode(w, thumb, &jpeg.Options{Quality: 75})
 }
-func (a *App) uploadDir(id string) string { return filepath.Join(a.data, "uploads", id) }
-func (a *App) readUpload(id string) (Upload, error) {
-	var u Upload
-	b, err := os.ReadFile(filepath.Join(a.uploadDir(id), "meta.json"))
-	if err == nil {
-		err = json.Unmarshal(b, &u)
-	}
-	return u, err
-}
-func (a *App) saveUpload(u Upload) error {
-	b, err := json.Marshal(u)
-	if err != nil {
-		return err
-	}
-	p := filepath.Join(a.uploadDir(u.ID), "meta.json")
-	if err = os.WriteFile(p+".tmp", b, 0600); err != nil {
-		return err
-	}
-	return os.Rename(p+".tmp", p)
-}
-func (a *App) beginUpload(w http.ResponseWriter, r *http.Request) error {
-	var u Upload
-	if err := decode(w, r, &u); err != nil {
-		return err
-	}
-	if err := validName(u.Name); err != nil {
-		return err
-	}
-	if u.Size < 0 || u.Size > maxSize || !fingerprintPattern.MatchString(u.Fingerprint) {
-		return problem(400, "파일 크기 또는 식별자가 잘못되었습니다.")
-	}
-	target, err := a.safe(u.Target, false)
-	if err != nil {
-		return err
-	}
-	st, err := a.root.Stat(target)
-	if err != nil {
-		return err
-	}
-	if !st.IsDir() {
-		return problem(400, "업로드 대상이 폴더가 아닙니다.")
-	}
-	a.uploads.Lock()
-	defer a.uploads.Unlock()
-	entries, err := os.ReadDir(filepath.Join(a.data, "uploads"))
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if !idPattern.MatchString(entry.Name()) {
-			continue
-		}
-		old, e := a.readUpload(entry.Name())
-		if e != nil || old.Complete {
-			continue
-		}
-		if old.Root == a.config.SharedRoot && old.Target == u.Target && old.Name == u.Name && old.Size == u.Size && old.Fingerprint == u.Fingerprint {
-			lock, _ := a.uploadLocks.LoadOrStore(old.ID, &sync.Mutex{})
-			mu := lock.(*sync.Mutex)
-			mu.Lock()
-			st, e := os.Stat(filepath.Join(a.uploadDir(old.ID), "body"))
-			mu.Unlock()
-			if e != nil {
-				return e
-			}
-			old.Offset = st.Size()
-			reply(w, 200, old)
-			return nil
-		}
-	}
-	if diskFree(a.data) < u.Size+chunkSize || diskFree(a.config.SharedRoot) < u.Size+chunkSize {
-		return problem(507, "저장 공간이 부족합니다.")
-	}
-	u.ID = randomHex(16)
-	u.Root = a.config.SharedRoot
-	u.Created = time.Now().UnixMilli()
-	u.Path = ""
-	u.Complete = false
-	u.Offset = 0
-	if err = os.Mkdir(a.uploadDir(u.ID), 0700); err != nil {
-		return err
-	}
-	if err = os.WriteFile(filepath.Join(a.uploadDir(u.ID), "body"), nil, 0600); err != nil {
-		return err
-	}
-	if err = a.saveUpload(u); err != nil {
-		return err
-	}
-	reply(w, 201, u)
-	return nil
-}
-func (a *App) upload(w http.ResponseWriter, r *http.Request) error {
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/uploads/"), "/")
-	id := parts[0]
-	if !idPattern.MatchString(id) || len(parts) > 2 {
-		return problem(404, "전송을 찾을 수 없습니다.")
-	}
-	complete := len(parts) == 2 && parts[1] == "complete"
-	if len(parts) == 2 && !complete {
-		return problem(404, "잘못된 요청입니다.")
-	}
-	lock, _ := a.uploadLocks.LoadOrStore(id, &sync.Mutex{})
-	mu := lock.(*sync.Mutex)
-	if !mu.TryLock() {
-		return problem(409, "같은 파일을 전송 중입니다.")
-	}
-	defer mu.Unlock()
-	u, err := a.readUpload(id)
-	if err != nil {
-		return err
-	}
-	if u.Root != a.config.SharedRoot {
-		return problem(409, "공유 폴더가 변경되었습니다. 원래 폴더에서 이어 올리세요.")
-	}
-	if u.Complete {
-		if (complete && r.Method == "POST") || (!complete && r.Method == "GET") {
-			reply(w, 200, u)
-			return nil
-		}
-		return problem(409, "이미 완료된 전송입니다.")
-	}
-	body := filepath.Join(a.uploadDir(id), "body")
-	st, err := os.Stat(body)
-	if err != nil {
-		return err
-	}
-	u.Offset = st.Size()
-	switch {
-	case r.Method == "GET" && !complete:
-		reply(w, 200, u)
-		return nil
-	case r.Method == "DELETE" && !complete:
-		if err = os.RemoveAll(a.uploadDir(id)); err != nil {
-			return err
-		}
-		reply(w, 200, map[string]bool{"ok": true})
-		return nil
-	case r.Method == "PATCH" && !complete:
-		offset, e := strconv.ParseInt(r.Header.Get("Upload-Offset"), 10, 64)
-		if e != nil || offset != u.Offset {
-			return problem(409, "전송 위치가 다릅니다. 다시 이어 올리세요.")
-		}
-		length := r.ContentLength
-		if length <= 0 || length > chunkSize || length > u.Size-offset {
-			return problem(413, "잘못된 조각 크기입니다.")
-		}
-		if diskFree(a.data) < length+1<<20 {
-			return problem(507, "저장 공간이 부족합니다.")
-		}
-		file, e := os.OpenFile(body, os.O_WRONLY, 0600)
-		if e != nil {
-			return e
-		}
-		defer file.Close()
-		if _, e = file.Seek(offset, io.SeekStart); e != nil {
-			return e
-		}
-		n, e := io.CopyN(file, r.Body, length)
-		if e != nil || n != length {
-			file.Truncate(offset)
-			return problem(400, "전송이 중단되었습니다. 이어 올리세요.")
-		}
-		if e = file.Sync(); e != nil {
-			file.Truncate(offset)
-			return e
-		}
-		reply(w, 200, map[string]int64{"offset": offset + n})
-		return nil
-	case r.Method == "POST" && complete:
-		if u.Offset != u.Size {
-			return problem(409, "아직 전송이 완료되지 않았습니다.")
-		}
-		parent, e := a.safe(u.Target, false)
-		if e != nil {
-			return e
-		}
-		name := u.Name
-		ext := path.Ext(name)
-		base := strings.TrimSuffix(name, ext)
-		for i := 0; i < 10000; i++ {
-			if i > 0 {
-				name = fmt.Sprintf("%s (%d)%s", base, i, ext)
-			}
-			dest := path.Join(parent, name)
-			out, e := a.root.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
-			if errors.Is(e, fs.ErrExist) {
-				continue
-			}
-			if e != nil {
-				return e
-			}
-			in, e := os.Open(body)
-			if e != nil {
-				out.Close()
-				a.root.Remove(dest)
-				return e
-			}
-			_, e = io.Copy(out, in)
-			in.Close()
-			if e == nil {
-				e = out.Sync()
-			}
-			closeErr := out.Close()
-			if e == nil {
-				e = closeErr
-			}
-			if e != nil {
-				a.root.Remove(dest)
-				return e
-			}
-			u.Path = dest
-			u.Name = name
-			u.Complete = true
-			if e = a.saveUpload(u); e != nil {
-				a.root.Remove(dest)
-				return e
-			}
-			os.Remove(body)
-			reply(w, 200, u)
-			return nil
-		}
-		return problem(409, "같은 이름의 파일이 너무 많습니다.")
-	}
-	return problem(405, "지원하지 않는 요청입니다.")
-}
 func main() {
 	exe, err := os.Executable()
 	if err != nil {
@@ -1295,7 +1109,7 @@ func main() {
 	if err := os.WriteFile(filepath.Join(a.data, "desktop-url.txt"), []byte(desktopURL), 0600); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("\nFileShare v0.3.0 | Go native server\n\nPC: http://localhost:%s\n", port)
+	fmt.Printf("\nFileShare v0.4.0 | Go native server\n\nPC: http://localhost:%s\n", port)
 	interfaces, _ := net.InterfaceAddrs()
 	for _, addr := range interfaces {
 		ip, _, e := net.ParseCIDR(addr.String())

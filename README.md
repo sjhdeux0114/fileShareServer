@@ -1,4 +1,4 @@
-# FileShare 0.3.0
+# FileShare 0.4.0
 
 Windows·macOS PC의 폴더 하나를 공유하고, 같은 Wi-Fi의 iPhone·Android 브라우저에서 파일을 주고받는 가벼운 파일 서버입니다.
 
@@ -6,14 +6,14 @@ Windows·macOS PC의 폴더 하나를 공유하고, 같은 Wi-Fi의 iPhone·Andr
 
 ## 실행
 
-1. [v0.3.0 다운로드](https://github.com/sjhdeux0114/fileShareServer/releases/tag/v0.3.0)에서 PC용 패키지를 받아 **전체 압축을 풉니다**.
+1. [v0.4.0 다운로드](https://github.com/sjhdeux0114/fileShareServer/releases/tag/v0.4.0)에서 PC용 패키지를 받아 **전체 압축을 풉니다**.
 
 | PC | 패키지 |
 |---|---|
-| Windows Intel/AMD | `FileShare-0.3.0-windows-x64.zip` |
-| Windows ARM | `FileShare-0.3.0-windows-arm64.zip` |
-| Mac Apple Silicon | `FileShare-0.3.0-macos-arm64.tar.gz` |
-| Mac Intel | `FileShare-0.3.0-macos-x64.tar.gz` |
+| Windows Intel/AMD | `FileShare-0.4.0-windows-x64.zip` |
+| Windows ARM | `FileShare-0.4.0-windows-arm64.zip` |
+| Mac Apple Silicon | `FileShare-0.4.0-macos-arm64.tar.gz` |
+| Mac Intel | `FileShare-0.4.0-macos-x64.tar.gz` |
 
 2. Windows: **`FileShare.exe`를 더블클릭**하세요. 릴리스의 단독 `.exe`도 바로 실행할 수 있습니다. 콘솔 창 없이 트레이에 표시됩니다. Mac은 `start-macos.command`를 실행하고 서버를 유지하세요.
 3. 첫 실행 시 PC 설정 화면이 자동으로 열립니다. **폴더 선택**으로 공유 폴더를 지정하고 접속 비밀번호(4자 이상)와 포트를 저장하세요.
@@ -49,8 +49,8 @@ Mac 실행 권한 오류는 해당 폴더의 터미널에서 `chmod +x FileShare
 
 ## 20GB 이상 대용량
 
-- 파일당 최대 **1TiB**, **2MiB 분할 업로드**. 전체 파일을 메모리에 올리지 않고 디스크에 씁니다. 다운로드는 HTTP Range를 지원합니다.
-- 연결 오류 시 서버의 저장 위치를 확인하고 자동으로 이어 올립니다. 최대 12회 연속 복구 실패 시 수동 재개를 제공합니다. 사용자 일시정지는 자동 재개하지 않습니다.
+- 파일당 최대 **1TiB**, 0.4.0은 **1MiB 분할 업로드·최대 8MiB 읽기 버퍼**를 사용합니다. 전체 영상을 메모리에 올리지 않고 디스크에 씁니다. 다운로드는 HTTP Range를 지원합니다.
+- 연결 오류 시 서버의 저장 위치를 확인하고 자동으로 이어 올립니다. 0.4.0은 최대 6회 자동 복구 후 수동 재개를 제공합니다. 사용자 일시정지는 자동 재개하지 않습니다.
 - **일시정지 → 이어 올리기** 지원. 브라우저나 서버가 종료되면 재접속 후 같은 원본을 **같은 대상 폴더에서 다시 선택**하세요. 이름·크기·수정 시각·앞/중간/뒤 샘플 지문이 같으면 이어 올립니다. 샘플 지문은 전체 파일 해시 검증을 대신하지 않습니다.
 - iOS 사진 선택기가 재변환하거나 수정 시각을 바꾸면 새 파일로 인식할 수 있습니다. 큰 원본은 파일 앱에서 선택하는 것이 안정적입니다.
 - 전송 중에는 휴대폰 화면과 브라우저를 전면에 유지하세요. iOS 잠금·백그라운드 작업은 중단될 수 있습니다. HTTP에서는 Wake Lock을 보장할 수 없습니다.
@@ -92,6 +92,17 @@ Go 1.25 이상: `go run .`, `go test ./...`, `go vet ./...`. 릴리스는 Go 1.2
 HTTP 통합 테스트에는 개발용 Node.js 22 이상을 사용합니다. `go build -o .local/fileshare-test.exe .` (Windows) 또는 `go build -o .local/fileshare-test .` (Mac/Linux) 후 `npm test`. 사용자 실행에는 Node.js가 필요 없습니다.
 
 `npm run test:large`는 실제 **21GiB+123바이트 업로드 → 5GiB에서 서버 재시작·재개 → 전량 다운로드 → SHA-256 비교**를 수행합니다. 임시 디스크에 약 44GiB 여유가 필요합니다. 결과는 `release/large-file-test.json`, 상세 범위는 [검증 보고서](release/VALIDATION.md)에 기록합니다.
+
+### 0.4.0 전송 엔진 재작성
+
+- 브라우저 업로드를 새로 작성했습니다. XMLHttpRequest 진행 이벤트, 정상 전송 중의 2초 주기 상태 조회, 강제 연결 종료 우회를 제거했습니다. fetch POST 응답으로 서버의 저장 위치를 확인하면 즉시 다음 조각을 전송합니다. 조각은 1MiB이며 POST /api/uploads/<id>/chunks를 사용합니다.
+- 서버 전송 처리는 upload.go로 분리했습니다. 기존 PATCH 클라이언트와 재개 메타데이터는 호환됩니다. 오류가 발생한 경우에만 서버 위치를 다시 확인하고 최대 6회 자동 복구합니다. 정상 전송에는 재시도 대기 시간이 없습니다.
+- 사진이 8MiB 이하이면 한 번 읽은 데이터를 파일 지문과 모든 전송 조각에 재사용합니다. 큰 영상은 최대 8MiB 읽기 버퍼와 앞/중간/뒤 64KiB 지문 샘플을 사용합니다. 전체 영상을 메모리에 올리지 않습니다. 기존 샘플 지문 형식은 유지됩니다.
+- 일시정지는 파일 준비·전송·최종 저장 응답 대기를 취소합니다. PC에서 이미 진행 중인 최종 저장 작업은 완료될 수 있으며 재개 시 서버 상태를 확인합니다. 최종 공유 파일의 디스크 동기화가 성공해야 완료 응답을 보냅니다.
+- 화면에서 선택창이 파일을 앱에 전달한 시점을 표시하고, 완료 항목에 앱의 준비 시간·전송 시간을 표시합니다. 선택창을 열고 파일을 받기까지의 시간에는 사용자가 고르는 시간도 포함되므로 순수 변환 시간으로 표시하지 않습니다. 선택창 내부의 iOS 준비·변환은 웹페이지가 직접 측정하거나 취소할 수 없으며 iCloud 문제로 단정하지 않습니다.
+- 임시 조각은 쓰기·닫기 후 응답하며 강제 디스크 동기화는 최종 파일에 적용합니다. 일반 앱 재시작 후 재개는 지원하지만 전송 도중 전원 차단·OS 장애가 발생하면 임시 파일을 보장할 수 없습니다. 이 경우 해당 미완료 업로드를 취소하고 처음부터 다시 전송하세요.
+- 로그인한 서버 PC의 GET /api/diagnostics/uploads에서 최근 256개 요청 기록을 확인할 수 있습니다. 재시작하면 초기화되며 파일 내용·비밀번호·쿠키는 기록하지 않습니다.
+- 기존 서버를 종료한 뒤 0.4.0 실행 파일로 교체하고 휴대폰을 새로고침하여 v0.4.0 표시를 확인하세요. 사용자가 실물 iPhone에서 업로드 정상 동작을 확인했습니다. 사진 선택창이 늦게 닫히는 현상은 이번 릴리스에서 해결하지 못했습니다.
 
 기능 참고: [HFS](https://github.com/rejetto/hfs), [FileBrowser Quantum](https://github.com/gtsteffaniak/filebrowser), [Copyparty](https://github.com/9001/copyparty). 해당 프로그램들의 코드를 포함하거나 포크하지 않았습니다.
 
