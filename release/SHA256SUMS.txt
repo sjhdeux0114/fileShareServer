@@ -1,0 +1,5 @@
+43f58fcbf6c5bcd5e203bded9c913d00a970725b6b9bddcc403899e67b031ccc  FileShare-0.1.0-windows-x64.zip
+5bcd653df8e18db2f832d50f7f7505b2cabccebdda4452386c8da8a09954095f  FileShare-0.1.0-macos-arm64.tar.gz
+5dcd6b8ae3edeea58f42a1f5c293426968de823578676f753a495e6e0897fff4  FileShare-0.1.0-source.zip
+67d2209f018fcb0eab3f5c97326cba547603e65e8e41141ae49ed1638f085bef  FileShare-0.1.0-macos-x64.tar.gz
+8520bd1cb8af87130f0dd744bde52e509bfa93a6cf96518a53dc178207c67b59  FileShare-0.1.0-windows-arm64.zip

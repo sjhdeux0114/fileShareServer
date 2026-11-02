@@ -78,14 +78,14 @@ func main() {
 		for _, name := range []string{"VALIDATION.md", "large-file-test.json"} {
 			b, e := os.ReadFile(filepath.Join("release", name))
 			if e == nil {
-				files = append(files, entry{name, b, 0644})
+				files = append(files, entry{"release/" + name, b, 0644})
 			}
 		}
 		name := "FileShare-0.1.0-" + target.Label
 		archive(filepath.Join("release", name+extension), name+"/", files)
 	}
 	var source []entry
-	for _, name := range []string{"main.go", "main_test.go", "disk_windows.go", "disk_unix.go", "go.mod", "README.md", "package.json", "start-windows.bat", "start-macos.command", "public", "test", "cmd", ".github"} {
+	for _, name := range []string{"main.go", "main_test.go", "disk_windows.go", "disk_unix.go", "go.mod", "README.md", "package.json", "start-windows.bat", "start-macos.command", "public", "test", "cmd", ".github", ".gitattributes", ".gitignore", "release/VALIDATION.md", "release/large-file-test.json"} {
 		must(filepath.WalkDir(name, func(p string, d os.DirEntry, e error) error {
 			if e != nil {
 				return e

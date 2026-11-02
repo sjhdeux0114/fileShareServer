@@ -1,7 +1,6 @@
 data/
 .cache/
 node_modules/
-release/*.zip
-release/*.tar.gz
 *.log
 .local/
+/FileShare.exe

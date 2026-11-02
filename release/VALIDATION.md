@@ -26,7 +26,9 @@
 
 - Windows x64에서 네이티브 실행·HTTP 통합·대용량 왕복 검증.
 - Windows ARM64, macOS ARM64/x64는 크로스 컴파일 패키지를 제공합니다.
-- GitHub Actions는 Windows/macOS/Linux에서 Go 및 HTTP 통합 테스트를 실행합니다. 실제 실행 결과는 저장소 Actions를 확인하세요.
-- 데스크톱 브라우저와 390px 모바일 폭으로 웹 UI를 검증합니다. 모바일 폭 검증은 실제 iOS Safari나 Android Chrome 검증을 대신하지 않습니다.
+- GitHub Actions **Windows/macOS/Linux 모두 성공**: [실행 결과](https://github.com/sjhdeux0114/fileShareServer/actions/runs/41428914895). Go 단위 테스트·vet·네이티브 빌드·HTTP 통합 테스트 8개를 각 OS에서 통과했습니다.
+- Windows x64 ZIP을 실제로 풀어 포함된 배포용 실행 파일로 HTTP 통합 테스트 8개를 다시 통과했습니다. macOS tar.gz의 실행 파일·실행 스크립트 0755 권한도 확인했습니다.
+- 데스크톱 브라우저: 한글 파일과 33MiB 파일 다중 업로드, 사진 버튼으로 하위 폴더 업로드, 새 폴더 생성·탐색, 이름 변경, 폴더 간 복사, 한글 파일 다운로드 내용 일치, 80×80 썸네일 로드, 서버 재시작 후 자동 로그인 확인.
+- 390px 모바일 뷰포트에서 가로 넘침 없음 확인. 스크롤바를 제외한 실제 문서 폭 375px과 scrollWidth가 일치했습니다. 스크린샷은 `release/screenshots`에 보관합니다. 모바일 폭 검증은 실제 iOS Safari나 Android Chrome 검증을 대신하지 않습니다.
 - **실물 아이폰·안드로이드의 사진/파일 선택기, 20GB 영상 업로드, 사진 앱 저장은 직접 검증하지 못했습니다.** 표준 파일 선택/Blob.slice/다운로드 및 Safari 공유 흐름을 지원하도록 구현했습니다.
 - Apple 공증/Windows 코드 서명은 하지 않았습니다. 실제 공유기·방화벽 환경의 휴대폰 연결은 확인하지 못했습니다.
