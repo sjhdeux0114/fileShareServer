@@ -55,7 +55,10 @@ test('empty file, same names, safe file names, upload cancellation and limits',a
   const another=await f.init('photo.txt',0,'b'.repeat(64));assert.notEqual(u.id,another.id);
   assert.equal((await f.req(`/api/uploads/${another.id}`,{method:'DELETE'})).status,200);
   for(const size of [-1,1.1,Number.MAX_SAFE_INTEGER])assert.equal((await f.req('/api/uploads',{method:'POST',body:JSON.stringify({name:'bad',size,fingerprint:'c'.repeat(64)})})).status,400);
-  const pending=await f.init('large.mov',20*1024**3);assert.equal(pending.size,21474836480);
+  const free=(await (await f.req('/api/info')).json()).freeBytes;
+  if(free>20*1024**3+16*1024**2){const large=await f.init('large.mov',20*1024**3);assert.equal(large.size,21474836480);}
+  else {assert.equal((await f.req('/api/uploads',{method:'POST',body:JSON.stringify({name:'large.mov',size:20*1024**3,fingerprint:'f'.repeat(64)})})).status,507);}
+  const pending=await f.init('chunk-limit.bin',32*1024**2,'c'.repeat(64));
   assert.equal((await f.req(`/api/uploads/${pending.id}`,{method:'PATCH',headers:{'Upload-Offset':'0'},body:Buffer.alloc(16*1024*1024+1)})).status,413);
 });
 test('aborted chunk rolls back and can be resumed',async t=>{

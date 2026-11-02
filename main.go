@@ -109,6 +109,12 @@ func newApp(data, shared, password string) (*App, error) {
 	if err = os.MkdirAll(filepath.Join(data, "uploads"), 0700); err != nil {
 		return nil, err
 	}
+	// macOS temporary paths may use /var while the resolved path is /private/var.
+	// Compare canonical roots so a shared folder cannot expose private settings.
+	data, err = filepath.EvalSymlinks(data)
+	if err != nil {
+		return nil, err
+	}
 	a := &App{data: data, attempts: map[string]attempt{}, thumbnails: make(chan struct{}, 2)}
 	raw, err := os.ReadFile(filepath.Join(data, "settings.json"))
 	if err == nil {
