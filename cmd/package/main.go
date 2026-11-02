@@ -64,7 +64,7 @@ func main() {
 		extension := ".tar.gz"
 		if target.OS == "windows" {
 			binary += ".exe"
-			launcher = "start-windows.bat"
+			launcher = ""
 			extension = ".zip"
 		}
 		dest := filepath.Join(".cache/build", target.Label+"-"+binary)
@@ -74,7 +74,13 @@ func main() {
 		cmd.Stderr = os.Stderr
 		fmt.Println("Building", target.Label)
 		must(cmd.Run())
-		files := []entry{{binary, read(dest), 0755}, {launcher, read(launcher), 0755}, {"README.md", read("README.md"), 0644}, {"GO-LICENSE.txt", read(filepath.Join(runtime.GOROOT(), "LICENSE")), 0644}}
+		files := []entry{{binary, read(dest), 0755}, {"README.md", read("README.md"), 0644}, {"GO-LICENSE.txt", read(filepath.Join(runtime.GOROOT(), "LICENSE")), 0644}}
+		if launcher != "" {
+			files = append(files, entry{launcher, read(launcher), 0755})
+		}
+		if target.OS == "windows" {
+			must(os.WriteFile(filepath.Join("release", "FileShare-0.1.0-"+target.Label+".exe"), read(dest), 0755))
+		}
 		for _, name := range []string{"VALIDATION.md", "large-file-test.json"} {
 			b, e := os.ReadFile(filepath.Join("release", name))
 			if e == nil {
@@ -85,7 +91,7 @@ func main() {
 		archive(filepath.Join("release", name+extension), name+"/", files)
 	}
 	var source []entry
-	for _, name := range []string{"main.go", "main_test.go", "disk_windows.go", "disk_unix.go", "go.mod", "README.md", "package.json", "start-windows.bat", "start-macos.command", "public", "test", "cmd", ".github", ".gitattributes", ".gitignore", "release/VALIDATION.md", "release/large-file-test.json"} {
+	for _, name := range []string{"main.go", "main_test.go", "disk_windows.go", "disk_unix.go", "go.mod", "README.md", "package.json", "start-macos.command", "public", "test", "cmd", ".github", ".gitattributes", ".gitignore", "release/VALIDATION.md", "release/large-file-test.json"} {
 		must(filepath.WalkDir(name, func(p string, d os.DirEntry, e error) error {
 			if e != nil {
 				return e
@@ -106,7 +112,7 @@ func main() {
 	must(e)
 	var sums []string
 	for _, item := range entries {
-		if !strings.HasSuffix(item.Name(), ".zip") && !strings.HasSuffix(item.Name(), ".tar.gz") {
+		if !strings.HasSuffix(item.Name(), ".zip") && !strings.HasSuffix(item.Name(), ".tar.gz") && !strings.HasSuffix(item.Name(), ".exe") {
 			continue
 		}
 		f, e := os.Open(filepath.Join("release", item.Name()))

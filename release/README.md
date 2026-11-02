@@ -2,6 +2,8 @@
 
 별도 런타임 설치 없이 압축을 풀어 실행합니다.
 
+Windows는 배치파일 없이 **FileShare.exe를 더블클릭**하면 됩니다. 압축 해제도 필요 없는 단독 실행 파일: [Windows x64 EXE](FileShare-0.1.0-windows-x64.exe) · [Windows ARM64 EXE](FileShare-0.1.0-windows-arm64.exe).
+
 | 플랫폼 | 다운로드 |
 |---|---|
 | Windows Intel/AMD | [windows-x64.zip](FileShare-0.1.0-windows-x64.zip) |

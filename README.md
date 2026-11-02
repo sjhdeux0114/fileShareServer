@@ -15,7 +15,7 @@ Windows·macOS PC의 폴더 하나를 공유하고, 같은 Wi-Fi의 iPhone·Andr
 | Mac Apple Silicon | `FileShare-0.1.0-macos-arm64.tar.gz` |
 | Mac Intel | `FileShare-0.1.0-macos-x64.tar.gz` |
 
-2. Windows: `start-windows.bat` 또는 `FileShare.exe`. Mac: `start-macos.command` 실행. 서버 창을 열어두세요.
+2. Windows: **`FileShare.exe`를 더블클릭**하세요. 배치파일 없이 실행됩니다. ZIP 대신 릴리스의 `FileShare-0.1.0-windows-x64.exe`(Intel/AMD) 또는 `FileShare-0.1.0-windows-arm64.exe`를 받아 직접 실행해도 됩니다. Mac: `start-macos.command` 실행. 서버 창을 열어두세요.
 3. PC 브라우저가 자동으로 열립니다. 열리지 않으면 `http://localhost:8787`로 접속하세요.
 4. 첫 실행 창의 `Initial password`를 입력합니다. PC의 **서버 설정**에서 접속 비밀번호와 공유 폴더 전체 경로를 지정합니다. 폴더는 미리 만들어두세요.
 5. 같은 Wi-Fi의 휴대폰에서 실행 창의 `Phone: http://192.168.…:8787` 주소로 접속하고 비밀번호를 입력합니다. 유선 PC + 같은 공유기의 Wi-Fi 휴대폰도 가능합니다.

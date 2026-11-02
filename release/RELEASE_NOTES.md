@@ -11,7 +11,7 @@
 
 실제 **21GiB+123바이트** 업로드·다운로드와 전체 SHA-256 일치를 확인했습니다. 5GiB에서 서버 재시작 후 전송 재개도 통과했습니다. Windows 테스트 중 서버 PeakWorkingSet 샘플 최대 약 15MiB였습니다.
 
-**실행:** OS용 압축 파일 전체를 풀고 `start-windows.bat` 또는 `start-macos.command`를 실행하세요. PC의 `http://localhost:8787`에서 초기 비밀번호로 로그인한 뒤 공유 폴더와 새 비밀번호를 지정합니다. 휴대폰은 실행 창의 LAN 주소로 접속하세요.
+**실행:** Windows는 ZIP 안의 **`FileShare.exe`를 더블클릭**하거나, 별도로 제공하는 Windows x64/ARM64 `.exe`를 받아 바로 실행하세요. 배치파일은 필요 없습니다. Mac은 `start-macos.command`를 실행하세요. PC의 `http://localhost:8787`에서 초기 비밀번호로 로그인한 뒤 공유 폴더와 새 비밀번호를 지정합니다. 휴대폰은 실행 창의 LAN 주소로 접속하세요.
 
 아이폰 사진 앱 저장은 Safari/파일 앱 공유 메뉴를 이용합니다. 실물 iPhone·Android의 사진 선택기·20GB 영상 전송은 직접 검증하지 못했습니다. OS 방화벽 허용이 필요할 수 있으며, 코드 서명·Apple 공증은 없습니다. HTTP이므로 신뢰하는 Wi-Fi에서 사용하세요.
 
