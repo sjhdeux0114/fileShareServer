@@ -82,7 +82,7 @@ test('password settings persist, remember login across restart, invalidate old s
   await f.stop();await f.start();
   assert.equal((await fetch(f.base+'/api/info',{headers:{Cookie:remembered}})).status,200);
   r=await fetch(f.base+'/api/login',{method:'POST',headers:{'X-FileShare':'1'},body:JSON.stringify({password:'새로운-password-2026'})});assert.equal(r.status,200);
-  const config=await fs.readFile(path.join(f.dir,'settings.json'),'utf8');assert.ok(!config.includes('새로운-password-2026'));
+  const config=await fs.readFile(path.join(f.dir,'settings.ini'),'utf8');assert.ok(!config.includes('새로운-password-2026'));
 });
 test('shared folder explorer: mkdir, rename, copy, move, ZIP, delete and conflict safety',async t=>{
   const f=await fixture(t);const root=path.join(f.dir,'shared');await fs.mkdir(path.join(root,'source'));await fs.writeFile(path.join(root,'source','메모.txt'),'original bytes');

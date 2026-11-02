@@ -52,6 +52,8 @@ func (e apiError) Error() string               { return e.message }
 func problem(status int, message string) error { return apiError{status, message} }
 
 type Config struct {
+	Port         int              `json:"port"`
+	NeedsSetup   bool             `json:"needsSetup"`
 	SharedRoot   string           `json:"sharedRoot"`
 	Salt         string           `json:"salt"`
 	PasswordHash string           `json:"passwordHash"`
@@ -75,6 +77,9 @@ type attempt struct {
 	until time.Time
 }
 type App struct {
+	configPath  string
+	desktopKey  string
+	picker      sync.Mutex
 	data        string
 	root        *os.Root
 	config      Config
@@ -115,14 +120,30 @@ func newApp(data, shared, password string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{data: data, attempts: map[string]attempt{}, thumbnails: make(chan struct{}, 2)}
-	raw, err := os.ReadFile(filepath.Join(data, "settings.json"))
-	if err == nil {
-		if err = json.Unmarshal(raw, &a.config); err != nil {
-			return nil, err
-		}
-	} else if !os.IsNotExist(err) {
+	a := &App{data: data, attempts: map[string]attempt{}, thumbnails: make(chan struct{}, 2), desktopKey: randomHex(32)}
+	a.configPath = os.Getenv("FILESHARE_CONFIG")
+	if a.configPath == "" {
+		a.configPath = filepath.Join(data, "settings.ini")
+	}
+	a.configPath, err = filepath.Abs(a.configPath)
+	if err != nil {
 		return nil, err
+	}
+	a.config, err = readINI(a.configPath)
+	if os.IsNotExist(err) {
+		if raw, e := os.ReadFile(filepath.Join(data, "settings.json")); e == nil {
+			err = json.Unmarshal(raw, &a.config)
+		} else if os.IsNotExist(e) {
+			err = nil
+		} else {
+			err = e
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if a.config.Port == 0 {
+		a.config.Port = 8787
 	}
 	if shared == "" {
 		shared = a.config.SharedRoot
@@ -141,7 +162,7 @@ func newApp(data, shared, password string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	if containsPath(shared, data) {
+	if containsPath(shared, data) || containsPath(shared, a.configPath) {
 		return nil, fmt.Errorf("shared folder must not contain private settings directory")
 	}
 	a.root, err = os.OpenRoot(shared)
@@ -150,6 +171,7 @@ func newApp(data, shared, password string) (*App, error) {
 	}
 	a.config.SharedRoot = shared
 	if a.config.PasswordHash == "" {
+		a.config.NeedsSetup = password == ""
 		if password == "" {
 			b := make([]byte, 8)
 			if _, err = rand.Read(b); err != nil {
@@ -184,15 +206,7 @@ func containsPath(parent, child string) bool {
 	return e == nil && (r == "." || r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) && !filepath.IsAbs(r))
 }
 func (a *App) saveConfig() error {
-	raw, err := json.MarshalIndent(a.config, "", "  ")
-	if err != nil {
-		return err
-	}
-	name := filepath.Join(a.data, "settings.json")
-	if err = os.WriteFile(name+".tmp", raw, 0600); err != nil {
-		return err
-	}
-	return os.Rename(name+".tmp", name)
+	return writeINI(a.configPath, a.config)
 }
 func (a *App) token() string {
 	payload := randomHex(16) + "." + strconv.FormatInt(time.Now().Add(30*24*time.Hour).Unix(), 10)
@@ -310,6 +324,25 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 		w.Write(data)
 		return nil
 	}
+	if route == "/api/desktop-session" && r.Method == "POST" {
+		if !local(r) {
+			return problem(403, "PC 설정 화면은 서버 PC에서만 사용할 수 있습니다.")
+		}
+		var body struct {
+			Key string `json:"key"`
+		}
+		if err := decode(w, r, &body); err != nil {
+			return err
+		}
+		if subtle.ConstantTimeCompare([]byte(body.Key), []byte(a.desktopKey)) != 1 {
+			return problem(401, "PC 실행 인증이 만료되었습니다. EXE를 다시 실행하세요.")
+		}
+		a.auth.Lock()
+		defer a.auth.Unlock()
+		setCookie(w, a.token())
+		reply(w, 200, map[string]bool{"ok": true})
+		return nil
+	}
 	if route == "/api/login" && r.Method == "POST" {
 		var body struct {
 			Password string `json:"password"`
@@ -323,6 +356,9 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 		}
 		a.auth.Lock()
 		defer a.auth.Unlock()
+		if a.config.NeedsSetup {
+			return problem(403, "서버 PC에서 공유 폴더와 비밀번호를 먼저 설정하세요.")
+		}
 		host, _, _ := net.SplitHostPort(r.RemoteAddr)
 		now := time.Now()
 		for k, v := range a.attempts {
@@ -354,6 +390,21 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 	if !valid {
 		return problem(401, "접속 비밀번호를 입력하세요.")
 	}
+	if route == "/api/pick-folder" && r.Method == "POST" {
+		if !local(r) {
+			return problem(403, "폴더 선택은 서버 PC에서만 가능합니다.")
+		}
+		if !a.picker.TryLock() {
+			return problem(409, "이미 폴더 선택 창이 열려 있습니다.")
+		}
+		defer a.picker.Unlock()
+		folder, err := chooseFolder(r.Context())
+		if err != nil {
+			return err
+		}
+		reply(w, 200, map[string]string{"path": folder})
+		return nil
+	}
 	if route == "/api/logout" && r.Method == "POST" {
 		a.auth.Lock()
 		defer a.auth.Unlock()
@@ -371,8 +422,18 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 	if write {
 		if strings.HasSuffix(route, "/complete") {
 			a.filesystem.Lock()
-		} else if !a.filesystem.TryLock() {
-			return problem(409, "전송 또는 파일 작업 중입니다. 잠시 후 다시 시도하세요.")
+		} else {
+			deadline := time.Now().Add(2 * time.Second)
+			for !a.filesystem.TryLock() {
+				if time.Now().After(deadline) {
+					return problem(423, "다운로드·미리보기 또는 다른 파일 작업이 진행 중입니다. 해당 작업을 끝낸 뒤 다시 시도하세요.")
+				}
+				select {
+				case <-r.Context().Done():
+					return problem(408, "요청이 취소되었습니다.")
+				case <-time.After(20 * time.Millisecond):
+				}
+			}
 		}
 		defer a.filesystem.Unlock()
 	} else {
@@ -384,6 +445,19 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 		result := map[string]any{"version": "0.1.0", "chunkSize": chunkSize, "maxFileSize": maxSize, "freeBytes": diskFree(a.config.SharedRoot), "canConfigure": local(r), "folderName": filepath.Base(a.config.SharedRoot), "passwordConfigured": true}
 		if local(r) {
 			result["sharedRoot"] = a.config.SharedRoot
+			result["configuredPort"] = a.config.Port
+			result["configFile"] = a.configPath
+			result["needsSetup"] = a.config.NeedsSetup
+			_, port, _ := net.SplitHostPort(r.Host)
+			addresses := []string{}
+			interfaces, _ := net.InterfaceAddrs()
+			for _, addr := range interfaces {
+				ip, _, err := net.ParseCIDR(addr.String())
+				if err == nil && ip.To4() != nil && !ip.IsLoopback() {
+					addresses = append(addresses, "http://"+net.JoinHostPort(ip.String(), port))
+				}
+			}
+			result["phoneUrls"] = addresses
 		}
 		reply(w, 200, result)
 		return nil
@@ -411,6 +485,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) error {
 		return problem(403, "설정은 서버 PC의 localhost 주소에서만 변경할 수 있습니다.")
 	}
 	var body struct {
+		Port       *int    `json:"port"`
 		SharedRoot *string `json:"sharedRoot"`
 		Password   *string `json:"password"`
 	}
@@ -420,6 +495,9 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) error {
 	a.auth.Lock()
 	defer a.auth.Unlock()
 	next := a.config
+	if next.NeedsSetup && (body.Password == nil || body.SharedRoot == nil) {
+		return problem(400, "공유 폴더와 접속 비밀번호를 모두 설정하세요.")
+	}
 	newRoot := a.root
 	if body.SharedRoot != nil {
 		if !filepath.IsAbs(*body.SharedRoot) {
@@ -429,7 +507,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		if containsPath(full, a.data) {
+		if containsPath(full, a.data) || containsPath(full, a.configPath) {
 			return problem(400, "인증 설정 폴더를 포함하는 경로는 공유할 수 없습니다.")
 		}
 		root, err := os.OpenRoot(full)
@@ -453,7 +531,14 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) error {
 		next.Key = randomHex(32)
 		next.Revoked = map[string]int64{}
 	}
+	if body.Port != nil {
+		if *body.Port < 1 || *body.Port > 65535 {
+			return problem(400, "포트는 1~65535 사이로 입력하세요.")
+		}
+		next.Port = *body.Port
+	}
 	old := a.config
+	next.NeedsSetup = false
 	a.config = next
 	if err := a.saveConfig(); err != nil {
 		a.config = old
@@ -695,15 +780,38 @@ func (a *App) operation(w http.ResponseWriter, r *http.Request) error {
 			return problem(400, "지원하지 않는 작업입니다.")
 		}
 		compareSource, compareDest := source, dest
+		caseRename := b.Action == "rename" && source != dest && strings.EqualFold(source, dest)
+		if b.Action == "rename" && source == dest {
+			reply(w, 200, map[string]bool{"ok": true})
+			return nil
+		}
 		if runtime.GOOS == "windows" {
 			compareSource = strings.ToLower(source)
 			compareDest = strings.ToLower(dest)
 		}
-		if compareDest == compareSource || strings.HasPrefix(compareDest, compareSource+"/") {
+		if (compareDest == compareSource && !caseRename) || strings.HasPrefix(compareDest, compareSource+"/") {
 			return problem(409, "자기 자신 또는 하위 폴더로 작업할 수 없습니다.")
 		}
-		if _, e := a.root.Lstat(dest); e == nil {
-			return problem(409, "같은 이름의 항목이 있습니다.")
+		if target, e := a.root.Lstat(dest); e == nil {
+			original, statErr := a.root.Lstat(source)
+			if !caseRename || statErr != nil || !os.SameFile(original, target) {
+				return problem(409, "같은 이름의 항목이 있습니다.")
+			}
+			// A distinct case-sensitive directory entry is still a collision, even for hard links.
+			dir, readErr := a.root.Open(path.Dir(dest))
+			if readErr != nil {
+				return readErr
+			}
+			items, readErr := dir.ReadDir(-1)
+			dir.Close()
+			if readErr != nil {
+				return readErr
+			}
+			for _, item := range items {
+				if item.Name() == path.Base(dest) {
+					return problem(409, "같은 이름의 항목이 있습니다.")
+				}
+			}
 		} else if !os.IsNotExist(e) {
 			return e
 		}
@@ -713,7 +821,16 @@ func (a *App) operation(w http.ResponseWriter, r *http.Request) error {
 				a.root.RemoveAll(dest)
 			}
 		} else {
-			err = a.root.Rename(source, dest)
+			for attempt := 0; attempt < 6; attempt++ {
+				err = a.root.Rename(source, dest)
+				if err == nil || !fileIsBusy(err) {
+					break
+				}
+				time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
+			}
+			if fileIsBusy(err) {
+				return problem(423, "다른 프로그램이 파일을 사용 중입니다. 재생·다운로드 또는 파일을 연 프로그램을 닫고 다시 시도하세요.")
+			}
 		}
 	}
 	if err != nil {
@@ -1116,21 +1233,50 @@ func main() {
 	data := os.Getenv("FILESHARE_DATA")
 	if data == "" {
 		data = filepath.Join(base, "data")
+		if os.Getenv("FILESHARE_CONFIG") == "" {
+			os.Setenv("FILESHARE_CONFIG", filepath.Join(base, "FileShare.ini"))
+		}
 	}
 	a, err := newApp(data, os.Getenv("FILESHARE_ROOT"), os.Getenv("FILESHARE_PASSWORD"))
 	if err != nil {
-		log.Fatal(err)
+		showStartupError(err.Error())
+		return
 	}
-	defer a.root.Close()
+	defer func() { a.root.Close() }()
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8787"
+		port = strconv.Itoa(a.config.Port)
 	}
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		log.Fatal(err)
+		if os.Getenv("FILESHARE_NO_BROWSER") != "1" {
+			if saved, e := os.ReadFile(filepath.Join(a.data, "desktop-url.txt")); e == nil {
+				address := strings.TrimSpace(string(saved))
+				prefix := "http://localhost:" + port + "/#desktop="
+				if strings.HasPrefix(address, prefix) && fingerprintPattern.MatchString(strings.TrimPrefix(address, prefix)) {
+					body := strings.NewReader(`{"key":"` + strings.TrimPrefix(address, prefix) + `"}`)
+					req, _ := http.NewRequest("POST", "http://localhost:"+port+"/api/desktop-session", body)
+					req.Header.Set("X-FileShare", "1")
+					client := http.Client{Timeout: 2 * time.Second}
+					res, e := client.Do(req)
+					if e == nil {
+						res.Body.Close()
+						if res.StatusCode == http.StatusOK {
+							openDesktop(address)
+							return
+						}
+					}
+				}
+			}
+		}
+		showStartupError(err.Error())
+		return
 	}
 	port = strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+	desktopURL := "http://localhost:" + port + "/#desktop=" + a.desktopKey
+	if err := os.WriteFile(filepath.Join(a.data, "desktop-url.txt"), []byte(desktopURL), 0600); err != nil {
+		log.Fatal(err)
+	}
 	fmt.Printf("\nFileShare v0.1.0 | Go native server\n\nPC: http://localhost:%s\n", port)
 	interfaces, _ := net.InterfaceAddrs()
 	for _, addr := range interfaces {
@@ -1145,20 +1291,41 @@ func main() {
 		fmt.Println("Password: use your saved password")
 	}
 	fmt.Printf("Shared folder: %s\nPrivate data: %s\nKeep this window open. Ctrl+C to stop.\nTrusted Wi-Fi only; HTTP is not encrypted.\nREADY http://127.0.0.1:%s\n", a.config.SharedRoot, a.data, port)
-	if os.Getenv("FILESHARE_NO_BROWSER") != "1" {
-		address := "http://localhost:" + port
-		var cmd *exec.Cmd
-		if runtime.GOOS == "windows" {
-			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", address)
-		} else if runtime.GOOS == "darwin" {
-			cmd = exec.Command("open", address)
-		}
-		if cmd != nil {
-			if e := cmd.Start(); e == nil {
-				go cmd.Wait()
-			}
-		}
+	if os.Getenv("FILESHARE_NO_BROWSER") != "1" && a.config.NeedsSetup {
+		openDesktop(desktopURL)
 	}
 	server := &http.Server{Handler: a, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10}
-	log.Fatal(server.Serve(listener))
+	if runtime.GOOS == "windows" && os.Getenv("FILESHARE_NO_TRAY") != "1" {
+		go func() {
+			if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+				showStartupError(err.Error())
+			}
+		}()
+		if err := runTray(func() { openDesktop(desktopURL) }, func() {
+			a.filesystem.RLock()
+			folder := a.config.SharedRoot
+			a.filesystem.RUnlock()
+			exec.Command("explorer.exe", folder).Start()
+		}, func() { server.Close() }); err != nil {
+			showStartupError(err.Error())
+		}
+		return
+	}
+	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+		showStartupError(err.Error())
+	}
+}
+
+func openDesktop(address string) {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", address)
+	} else if runtime.GOOS == "darwin" {
+		cmd = exec.Command("open", address)
+	}
+	if cmd != nil {
+		if err := cmd.Start(); err == nil {
+			go cmd.Wait()
+		}
+	}
 }

@@ -4,3 +4,4 @@ node_modules/
 *.log
 .local/
 /FileShare.exe
+/FileShare.ini

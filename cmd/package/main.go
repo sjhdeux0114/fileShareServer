@@ -68,7 +68,11 @@ func main() {
 			extension = ".zip"
 		}
 		dest := filepath.Join(".cache/build", target.Label+"-"+binary)
-		cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", dest, ".")
+		flags := "-s -w"
+		if target.OS == "windows" {
+			flags += " -H=windowsgui"
+		}
+		cmd := exec.Command("go", "build", "-trimpath", "-ldflags="+flags, "-o", dest, ".")
 		cmd.Env = append(os.Environ(), "GOOS="+target.OS, "GOARCH="+target.Arch, "CGO_ENABLED=0")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -91,7 +95,7 @@ func main() {
 		archive(filepath.Join("release", name+extension), name+"/", files)
 	}
 	var source []entry
-	for _, name := range []string{"main.go", "main_test.go", "disk_windows.go", "disk_unix.go", "go.mod", "README.md", "package.json", "start-macos.command", "public", "test", "cmd", ".github", ".gitattributes", ".gitignore", "release/VALIDATION.md", "release/large-file-test.json"} {
+	for _, name := range []string{"main.go", "main_test.go", "config.go", "config_test.go", "file_busy_windows.go", "file_busy_other.go", "file_busy_windows_test.go", "tray_windows.go", "tray_other.go", "disk_windows.go", "disk_unix.go", "folder_windows.go", "folder_darwin.go", "folder_linux.go", "go.mod", "README.md", "package.json", "start-macos.command", "public", "test", "cmd", ".github", ".gitattributes", ".gitignore", "release/VALIDATION.md", "release/large-file-test.json"} {
 		must(filepath.WalkDir(name, func(p string, d os.DirEntry, e error) error {
 			if e != nil {
 				return e
